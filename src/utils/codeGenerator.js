@@ -144,12 +144,12 @@ function buildXsltSelectExpr(mapping, sourceFormat) {
 
     case 'replace': {
       const srcPath = m.inputMap['source'] || m.sourcePaths[0]
-      const searchPath = m.inputMap['search'] || m.sourcePaths[1]
+      const searchFor = m.nodeData?.searchFor || ''
       const replaceWith = m.nodeData?.replaceWith || ''
       if (!srcPath) return "''"
       const srcExpr = buildXPathExpr(srcPath, sourceFormat)
-      if (searchPath) {
-        return `replace(${srcExpr}, ${buildXPathExpr(searchPath, sourceFormat)}, '${replaceWith}')`
+      if (searchFor) {
+        return `replace(${srcExpr}, '${searchFor.replace(/'/g, "''")}', '${replaceWith.replace(/'/g, "''")}')`
       }
       return srcExpr
     }
@@ -176,11 +176,12 @@ function buildXsltSelectExpr(mapping, sourceFormat) {
 
     case 'substring': {
       const srcPath = m.inputMap['source'] || m.sourcePaths[0]
-      const startPath = m.inputMap['start'] || m.sourcePaths[1]
-      const lenPath = m.inputMap['length'] || m.sourcePaths[2]
+      const startVal = m.nodeData?.substringStart
+      const lenVal = m.nodeData?.substringLength
       const srcExpr = srcPath ? buildXPathExpr(srcPath, sourceFormat) : "''"
-      const startExpr = startPath ? `number(${buildXPathExpr(startPath, sourceFormat)})` : '1'
-      const lenExpr = lenPath ? `number(${buildXPathExpr(lenPath, sourceFormat)})` : `string-length(${srcExpr})`
+      // XSLT substring is 1-based, so add 1 to the 0-based user input
+      const startExpr = startVal !== undefined && startVal !== '' ? `${Number(startVal) + 1}` : '1'
+      const lenExpr = lenVal !== undefined && lenVal !== '' ? lenVal : `string-length(${srcExpr})`
       return `substring(${srcExpr}, ${startExpr}, ${lenExpr})`
     }
 
@@ -434,11 +435,11 @@ export function generateGroovy(nodes, edges, sourceFormat, targetFormat, platfor
         }
       } else if (op === 'replace') {
         const srcPath = m.inputMap?.['source'] || m.sourcePaths[0]
-        const searchPath = m.inputMap?.['search'] || m.sourcePaths[1]
-        if (srcPath && searchPath) {
+        const searchFor = m.nodeData?.searchFor || ''
+        const replaceWith = m.nodeData?.replaceWith || ''
+        if (srcPath && searchFor) {
           const accessor = buildGroovyAccessor(srcPath, sourceFormat)
-          const searchAccessor = buildGroovyAccessor(searchPath, sourceFormat)
-          lines.push(`    def ${varName} = ${accessor}.toString().replace(${searchAccessor}.toString(), "${m.nodeData?.replaceWith || ''}")`)
+          lines.push(`    def ${varName} = ${accessor}.toString().replace("${searchFor.replace(/"/g, '\\"')}", "${replaceWith.replace(/"/g, '\\"')}")`)
         } else if (srcPath) {
           const accessor = buildGroovyAccessor(srcPath, sourceFormat)
           lines.push(`    def ${varName} = ${accessor}`)
@@ -460,12 +461,12 @@ export function generateGroovy(nodes, edges, sourceFormat, targetFormat, platfor
         lines.push(`    def ${varName} = ${accA} ${mathOp} ${accB}`)
       } else if (op === 'substring') {
         const srcPath = m.inputMap?.['source'] || m.sourcePaths[0]
-        const startPath = m.inputMap?.['start'] || m.sourcePaths[1]
-        const lenPath = m.inputMap?.['length'] || m.sourcePaths[2]
+        const startVal = m.nodeData?.substringStart
+        const lenVal = m.nodeData?.substringLength
         const srcAcc = srcPath ? `${buildGroovyAccessor(srcPath, sourceFormat)}.toString()` : '""'
-        const startAcc = startPath ? `(${buildGroovyAccessor(startPath, sourceFormat)} as int)` : '0'
-        const lenAcc = lenPath ? `(${buildGroovyAccessor(lenPath, sourceFormat)} as int)` : `${srcAcc}.length()`
-        lines.push(`    def ${varName} = ${srcAcc}.substring(${startAcc}, Math.min(${startAcc} + ${lenAcc}, ${srcAcc}.length()))`)
+        const startExpr = startVal !== undefined && startVal !== '' ? startVal : '0'
+        const lenExpr = lenVal !== undefined && lenVal !== '' ? lenVal : `${srcAcc}.length()`
+        lines.push(`    def ${varName} = ${srcAcc}.substring(${startExpr}, Math.min(${startExpr} + ${lenExpr}, ${srcAcc}.length()))`)
       } else if (op === 'equals') {
         const pathA = m.inputMap?.['valueA'] || m.sourcePaths[0]
         const pathB = m.inputMap?.['valueB'] || m.sourcePaths[1]

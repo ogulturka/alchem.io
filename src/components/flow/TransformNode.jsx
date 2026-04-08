@@ -35,10 +35,10 @@ export const operationConfig = {
     label: 'Replace',
     icon: Replace,
     category: 'string',
-    inputs: ['source', 'search'],
+    inputs: ['source'],
     outputs: ['result'],
     description: 'Find and replace text',
-    internalFields: ['replaceWith'],
+    internalFields: ['searchFor', 'replaceWith'],
   },
   ifelse: {
     label: 'IfElse',
@@ -78,9 +78,10 @@ export const operationConfig = {
     label: 'Substring',
     icon: Scissors,
     category: 'string',
-    inputs: ['source', 'start', 'length'],
+    inputs: ['source'],
     outputs: ['result'],
     description: 'Extract part of text',
+    internalFields: ['substringStart', 'substringLength'],
   },
   equals: {
     label: 'Equals',
@@ -105,12 +106,13 @@ function NodeHandle({ type, position, id, color, glow, label, side }) {
         position={position}
         id={id}
         style={{
-          width: 9,
-          height: 9,
+          width: 12,
+          height: 12,
           backgroundColor: type === 'target' ? 'transparent' : color,
-          border: `2px solid ${color}`,
-          boxShadow: `0 0 6px ${glow}`,
-          ...(side === 'left' ? { left: -4 } : { right: -4 }),
+          border: `2.5px solid ${color}`,
+          boxShadow: `0 0 8px ${glow}`,
+          zIndex: 50,
+          ...(side === 'left' ? { left: -6 } : { right: -6 }),
         }}
       />
       {side === 'left' && (
@@ -141,7 +143,7 @@ export default function TransformNode({ id, data }) {
 
   return (
     <motion.div
-      className="rounded-2xl border overflow-hidden"
+      className="rounded-2xl border"
       style={{
         backgroundColor: 'var(--color-bg-tertiary)',
         borderColor: cat.color,
@@ -156,7 +158,7 @@ export default function TransformNode({ id, data }) {
     >
       {/* ── Header: Microchip style ── */}
       <div
-        className="flex items-center gap-3 px-4 py-2.5"
+        className="flex items-center gap-3 px-4 py-2.5 rounded-t-2xl"
         style={{
           background: `linear-gradient(135deg, ${cat.color}, ${cat.glow})`,
         }}
@@ -205,7 +207,7 @@ export default function TransformNode({ id, data }) {
               placeholder="Enter value..."
               value={data.constantValue || ''}
               onChange={(e) => updateNodeData(id, { constantValue: e.target.value })}
-              className="w-full text-[11px] font-mono px-3 py-2 rounded-lg border outline-none focus:ring-1"
+              className="nodrag w-full text-[11px] font-mono px-3 py-2 rounded-lg border outline-none focus:ring-1"
               style={{
                 backgroundColor: 'var(--color-bg-primary)',
                 borderColor: cat.color,
@@ -225,24 +227,83 @@ export default function TransformNode({ id, data }) {
           </div>
         )}
 
-        {/* Replace: internal "Replace With" field */}
-        {config.internalFields?.includes('replaceWith') && (
-          <div className="px-4 py-2">
-            <label className="text-[9px] font-mono uppercase tracking-wider block mb-1.5" style={{ color: cat.glow }}>
-              Replace With
-            </label>
-            <input
-              type="text"
-              placeholder="replacement..."
-              value={data.replaceWith || ''}
-              onChange={(e) => updateNodeData(id, { replaceWith: e.target.value })}
-              className="w-full text-[11px] font-mono px-3 py-2 rounded-lg border outline-none focus:ring-1"
-              style={{
-                backgroundColor: 'var(--color-bg-primary)',
-                borderColor: cat.color,
-                color: 'var(--color-text-primary)',
-              }}
-            />
+        {/* Replace: searchFor + replaceWith */}
+        {config.internalFields?.includes('searchFor') && (
+          <div className="px-4 py-2 flex flex-col gap-2">
+            <div>
+              <label className="text-[9px] font-mono uppercase tracking-wider block mb-1.5" style={{ color: cat.glow }}>
+                Search For
+              </label>
+              <input
+                type="text"
+                placeholder="search text..."
+                value={data.searchFor || ''}
+                onChange={(e) => updateNodeData(id, { searchFor: e.target.value })}
+                className="nodrag w-full text-[11px] font-mono px-3 py-2 rounded-lg border outline-none focus:ring-1"
+                style={{
+                  backgroundColor: 'var(--color-bg-primary)',
+                  borderColor: cat.color,
+                  color: 'var(--color-text-primary)',
+                }}
+              />
+            </div>
+            <div>
+              <label className="text-[9px] font-mono uppercase tracking-wider block mb-1.5" style={{ color: cat.glow }}>
+                Replace With
+              </label>
+              <input
+                type="text"
+                placeholder="replacement..."
+                value={data.replaceWith || ''}
+                onChange={(e) => updateNodeData(id, { replaceWith: e.target.value })}
+                className="nodrag w-full text-[11px] font-mono px-3 py-2 rounded-lg border outline-none focus:ring-1"
+                style={{
+                  backgroundColor: 'var(--color-bg-primary)',
+                  borderColor: cat.color,
+                  color: 'var(--color-text-primary)',
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Substring: start + length */}
+        {config.internalFields?.includes('substringStart') && (
+          <div className="px-4 py-2 flex gap-2">
+            <div className="flex-1">
+              <label className="text-[9px] font-mono uppercase tracking-wider block mb-1.5" style={{ color: cat.glow }}>
+                Start
+              </label>
+              <input
+                type="number"
+                placeholder="0"
+                value={data.substringStart ?? ''}
+                onChange={(e) => updateNodeData(id, { substringStart: e.target.value })}
+                className="nodrag w-full text-[11px] font-mono px-3 py-2 rounded-lg border outline-none focus:ring-1"
+                style={{
+                  backgroundColor: 'var(--color-bg-primary)',
+                  borderColor: cat.color,
+                  color: 'var(--color-text-primary)',
+                }}
+              />
+            </div>
+            <div className="flex-1">
+              <label className="text-[9px] font-mono uppercase tracking-wider block mb-1.5" style={{ color: cat.glow }}>
+                Length
+              </label>
+              <input
+                type="number"
+                placeholder="5"
+                value={data.substringLength ?? ''}
+                onChange={(e) => updateNodeData(id, { substringLength: e.target.value })}
+                className="nodrag w-full text-[11px] font-mono px-3 py-2 rounded-lg border outline-none focus:ring-1"
+                style={{
+                  backgroundColor: 'var(--color-bg-primary)',
+                  borderColor: cat.color,
+                  color: 'var(--color-text-primary)',
+                }}
+              />
+            </div>
           </div>
         )}
 
@@ -255,7 +316,7 @@ export default function TransformNode({ id, data }) {
             <select
               value={data.mathOperator || '+'}
               onChange={(e) => updateNodeData(id, { mathOperator: e.target.value })}
-              className="w-full text-[11px] font-mono px-3 py-2 rounded-lg border outline-none cursor-pointer"
+              className="nodrag w-full text-[11px] font-mono px-3 py-2 rounded-lg border outline-none cursor-pointer"
               style={{
                 backgroundColor: 'var(--color-bg-primary)',
                 borderColor: cat.color,
@@ -297,7 +358,7 @@ export default function TransformNode({ id, data }) {
 
       {/* ── Footer ── */}
       <div
-        className="px-4 py-2 border-t"
+        className="px-4 py-2 border-t rounded-b-2xl"
         style={{ borderColor: `color-mix(in srgb, ${cat.color} 30%, transparent)`, backgroundColor: cat.bg }}
       >
         <span className="text-[9px] font-mono" style={{ color: 'var(--color-text-secondary)' }}>
