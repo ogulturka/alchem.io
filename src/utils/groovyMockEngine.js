@@ -353,8 +353,12 @@ export function executeGroovyMock(inputPayload, groovyScript, sourceFormat) {
           continue
         }
 
-        const value = evaluateExpression(expression, src, variables)
-        variables.set(varName, value)
+        try {
+          const value = evaluateExpression(expression, src, variables)
+          variables.set(varName, value ?? '')
+        } catch (evalErr) {
+          variables.set(varName, `[Error: ${evalErr.message}]`)
+        }
         continue
       }
 

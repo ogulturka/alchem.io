@@ -17,7 +17,7 @@ export default function AlchemizeButton() {
       <motion.button
         onClick={alchemize}
         disabled={isGenerating}
-        className="relative w-full py-4 px-6 rounded-full font-bold text-white text-sm tracking-wider cursor-pointer disabled:cursor-wait"
+        className="relative w-full py-4 px-6 rounded-lg font-bold text-white text-sm tracking-wider cursor-pointer disabled:cursor-wait"
         style={{
           background: `linear-gradient(135deg, var(--color-accent), var(--color-accent-glow))`,
           boxShadow: '0 0 24px var(--color-accent-glow), 0 4px 16px rgba(0,0,0,0.3)',

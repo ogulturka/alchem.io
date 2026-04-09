@@ -6,17 +6,22 @@ import '@xyflow/react/dist/style.css'
 import useAppStore from '../../store/useAppStore'
 import PayloadTreeNode from './PayloadTreeNode'
 import TransformNode from './TransformNode'
+import UdfNode from './UdfNode'
 import CommandPalette from './CommandPalette'
 import CopilotCommandBar from './CopilotCommandBar'
 
 const nodeTypes = {
   payloadTree: PayloadTreeNode,
   transform: TransformNode,
+  udf: UdfNode,
 }
+
+const INITIAL_GHOST = { active: false, nodes: [], edges: [], description: '' }
 
 export default function FlowCanvas() {
   const nodes = useAppStore((s) => s.nodes)
   const edges = useAppStore((s) => s.edges)
+  const [ghostState, setGhostState] = useState(INITIAL_GHOST)
   const onNodesChange = useAppStore((s) => s.onNodesChange)
   const onEdgesChange = useAppStore((s) => s.onEdgesChange)
   const onConnect = useAppStore((s) => s.onConnect)
@@ -27,6 +32,7 @@ export default function FlowCanvas() {
   const highlightedNodeIds = useAppStore((s) => s.highlightedNodeIds)
   const setHighlightedNodes = useAppStore((s) => s.setHighlightedNodes)
   const lockedEdgeIds = useAppStore((s) => s.lockedEdgeIds)
+  const lockedNodeIds = useAppStore((s) => s.lockedNodeIds)
   const lockEdges = useAppStore((s) => s.lockEdges)
   const unlockEdges = useAppStore((s) => s.unlockEdges)
   const { screenToFlowPosition } = useReactFlow()
@@ -48,8 +54,21 @@ export default function FlowCanvas() {
     openPalette(event.clientX, event.clientY)
   }, [openPalette])
 
-  const onPaletteSelect = useCallback((operation) => {
-    addTransformNode(operation, paletteFlowPos)
+  const udfs = useAppStore((s) => s.udfs)
+
+  const onPaletteSelect = useCallback((operation, udfData) => {
+    if (udfData) {
+      // Add UDF node
+      const id = `udf-${udfData.name}-${Date.now()}`
+      useAppStore.setState({
+        nodes: [...useAppStore.getState().nodes, {
+          id, type: 'udf', position: paletteFlowPos,
+          data: { name: udfData.name, args: udfData.args, code: udfData.code, udfId: udfData.id },
+        }],
+      })
+    } else {
+      addTransformNode(operation, paletteFlowPos)
+    }
     setPaletteOpen(false)
   }, [addTransformNode, paletteFlowPos])
 
@@ -152,11 +171,11 @@ export default function FlowCanvas() {
 
   // ── Active highlight set (locked takes priority over hover) ──
   const activeEdgeIds = lockedEdgeIds || highlightedEdgeIds
-  const activeNodeIds = lockedEdgeIds ? useAppStore.getState().lockedNodeIds : highlightedNodeIds
+  const activeNodeIds = lockedEdgeIds ? lockedNodeIds : highlightedNodeIds
 
-  // ── Style edges ──
+  // ── Style edges (+ ghost edges) ──
   const styledEdges = useMemo(() => {
-    return edges.map((edge) => {
+    const realEdges = edges.map((edge) => {
       const isHighlighted = activeEdgeIds === null || activeEdgeIds.has(edge.id)
       const isLocked = lockedEdgeIds !== null
       const isHoverOrLock = activeEdgeIds !== null
@@ -180,19 +199,45 @@ export default function FlowCanvas() {
         },
       }
     })
-  }, [edges, activeEdgeIds, lockedEdgeIds])
 
-  // ── Style nodes (add highlight class) ──
+    // Merge ghost edges with dashed preview styling
+    const ghosts = ghostState.edges.map((edge) => ({
+      ...edge,
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        width: 16,
+        height: 16,
+        color: '#a855f7',
+      },
+      style: {
+        stroke: '#a855f7',
+        strokeWidth: 2,
+        strokeDasharray: '8 4',
+        opacity: 0.6,
+        filter: 'drop-shadow(0 0 6px rgba(168,85,247,0.5))',
+      },
+    }))
+
+    return [...realEdges, ...ghosts]
+  }, [edges, activeEdgeIds, lockedEdgeIds, ghostState.edges])
+
+  // ── Style nodes (+ ghost nodes) ──
   const styledNodes = useMemo(() => {
-    if (!activeNodeIds) return nodes
-    return nodes.map((node) => {
-      const isHighlighted = activeNodeIds.has(node.id)
-      return {
-        ...node,
-        className: isHighlighted ? 'node-highlighted' : '',
-      }
-    })
-  }, [nodes, activeNodeIds])
+    const real = activeNodeIds
+      ? nodes.map((node) => ({
+          ...node,
+          className: activeNodeIds.has(node.id) ? 'node-highlighted' : '',
+        }))
+      : nodes
+
+    // Merge ghost nodes with ghost class
+    const ghosts = ghostState.nodes.map((node) => ({
+      ...node,
+      className: 'node-ghost',
+    }))
+
+    return [...real, ...ghosts]
+  }, [nodes, activeNodeIds, ghostState.nodes])
 
   const defaultEdgeOptions = useMemo(
     () => ({
@@ -285,7 +330,7 @@ export default function FlowCanvas() {
       </motion.button>
 
       {/* AI Copilot Command Bar */}
-      <CopilotCommandBar />
+      <CopilotCommandBar ghostState={ghostState} setGhostState={setGhostState} />
 
       {/* Command Palette */}
       <CommandPalette

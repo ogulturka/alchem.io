@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react'
 import { Handle, Position, useUpdateNodeInternals } from '@xyflow/react'
 import { ChevronRight, ChevronDown, Database, FolderOpen, Search } from 'lucide-react'
+import useAppStore from '../../store/useAppStore'
 
 const HANDLE_SIZE = 11
 const HANDLE_OFFSET = Math.ceil(HANDLE_SIZE / 2) // 6px — half sticks out
@@ -9,8 +10,12 @@ const typeColors = {
   string: '#22c55e',
   number: '#f59e0b',
   boolean: '#ef4444',
+  date: '#06b6d4',
   object: 'var(--color-accent-secondary)',
+  array: '#8b5cf6',
 }
+
+const TYPE_OPTIONS = ['string', 'number', 'boolean', 'date', 'object', 'array']
 
 function matchesSearch(item, query) {
   const label = (item.field || item.label || '').toLowerCase()
@@ -21,7 +26,7 @@ function matchesSearch(item, query) {
   return false
 }
 
-function TreeRow({ item, depth, parentPath, handleType, handlePosition, searchQuery, onToggle }) {
+function TreeRow({ item, depth, parentPath, handleType, handlePosition, searchQuery, onToggle, nodeId, onTypeChange }) {
   const [expanded, setExpanded] = useState(true)
   const hasChildren = item.children && item.children.length > 0
   const fieldPath = parentPath ? `${parentPath}.${item.field || item.label}` : (item.field || item.label)
@@ -81,17 +86,31 @@ function TreeRow({ item, depth, parentPath, handleType, handlePosition, searchQu
           {item.field || item.label}
         </span>
 
-        {/* Type badge */}
+        {/* Type badge — interactive select */}
         {item.type && (
-          <span
-            className="text-[9px] font-mono px-1.5 py-0.5 rounded ml-auto flex-shrink-0"
+          <select
+            value={item.type}
+            onChange={(e) => {
+              e.stopPropagation()
+              onTypeChange?.(fieldPath, e.target.value)
+            }}
+            className="nodrag text-[9px] font-mono px-1.5 py-0.5 rounded ml-auto flex-shrink-0 cursor-pointer outline-none"
             style={{
               color: typeColors[item.type] || 'var(--color-accent)',
               backgroundColor: `${typeColors[item.type] || 'var(--color-accent)'}15`,
+              border: 'none',
+              appearance: 'none',
+              WebkitAppearance: 'none',
+              MozAppearance: 'none',
+              paddingRight: '6px',
             }}
           >
-            {item.type}
-          </span>
+            {TYPE_OPTIONS.map((t) => (
+              <option key={t} value={t} style={{ backgroundColor: '#1e293b', color: typeColors[t] || '#fff' }}>
+                {t}
+              </option>
+            ))}
+          </select>
         )}
 
         {/* Handle for leaf fields — color matches data type */}
@@ -133,6 +152,8 @@ function TreeRow({ item, depth, parentPath, handleType, handlePosition, searchQu
               handlePosition={handlePosition}
               searchQuery={searchQuery}
               onToggle={onToggle}
+              nodeId={nodeId}
+              onTypeChange={onTypeChange}
             />
           ))}
         </div>
@@ -147,6 +168,11 @@ export default function PayloadTreeNode({ id, data }) {
   const isRight = handlePosition === 'right'
   const [searchQuery, setSearchQuery] = useState('')
   const updateNodeInternals = useUpdateNodeInternals()
+  const updateFieldType = useAppStore((s) => s.updateFieldType)
+
+  const handleTypeChange = useCallback((fieldPath, newType) => {
+    updateFieldType(id, fieldPath, newType)
+  }, [id, updateFieldType])
 
   const normalizedQuery = searchQuery.toLowerCase().trim()
 
@@ -167,13 +193,13 @@ export default function PayloadTreeNode({ id, data }) {
 
   return (
     <div
-      className="rounded-2xl shadow-2xl"
+      className="rounded-xl shadow-2xl"
       style={{
         width: 310,
       }}
     >
       <div
-        className="rounded-2xl border"
+        className="rounded-xl border"
         style={{
           backgroundColor: 'var(--color-bg-secondary)',
           borderColor: 'var(--color-node-border)',
@@ -181,7 +207,7 @@ export default function PayloadTreeNode({ id, data }) {
       >
         {/* Header */}
         <div
-          className="flex items-center gap-3 px-5 py-3.5 border-b rounded-t-2xl"
+          className="flex items-center gap-3 px-5 py-3.5 border-b rounded-t-xl"
           style={{
             background: `linear-gradient(135deg, var(--color-node-bg), var(--color-bg-tertiary))`,
             borderColor: 'var(--color-node-border)',
@@ -200,7 +226,7 @@ export default function PayloadTreeNode({ id, data }) {
             {label}
           </span>
           <span
-            className="text-[9px] font-mono ml-auto px-2 py-1 rounded-full"
+            className="text-[9px] font-mono ml-auto px-2 py-1 rounded-md"
             style={{
               color: 'var(--color-accent-glow)',
               backgroundColor: 'rgba(255,255,255,0.04)',
@@ -213,7 +239,7 @@ export default function PayloadTreeNode({ id, data }) {
         {/* Search bar */}
         <div className="px-4 py-3 border-b" style={{ borderColor: 'var(--color-node-border)' }}>
           <div
-            className="flex items-center gap-2.5 px-3 py-2 rounded-xl"
+            className="flex items-center gap-2.5 px-3 py-2 rounded-lg"
             style={{
               backgroundColor: 'var(--color-bg-tertiary)',
               border: '1px solid var(--color-border)',
@@ -243,6 +269,8 @@ export default function PayloadTreeNode({ id, data }) {
               handlePosition={handlePosition}
               searchQuery={normalizedQuery}
               onToggle={handleTreeToggle}
+              nodeId={id}
+              onTypeChange={handleTypeChange}
             />
           ))}
         </div>

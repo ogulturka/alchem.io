@@ -2,8 +2,9 @@ import { useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Merge, CaseSensitive, Calendar, Hash, GitBranch, Replace, X,
-  Calculator, Scissors, Equal,
+  Calculator, Scissors, Equal, Braces,
 } from 'lucide-react'
+import useAppStore from '../../store/useAppStore'
 
 const categoryGroups = [
   {
@@ -40,6 +41,7 @@ const categoryGroups = [
 
 export default function CommandPalette({ open, position, onSelect, onClose }) {
   const ref = useRef(null)
+  const udfs = useAppStore((s) => s.udfs)
 
   useEffect(() => {
     if (!open) return
@@ -138,6 +140,36 @@ export default function CommandPalette({ open, position, onSelect, onClose }) {
                 )}
               </div>
             ))}
+            {/* UDF Section */}
+            {udfs.length > 0 && (
+              <div>
+                <div className="mx-3 my-1" style={{ height: 1, backgroundColor: 'var(--color-border)', opacity: 0.4 }} />
+                <div className="px-3 pt-2 pb-1 flex items-center gap-1.5">
+                  <div className="rounded-full" style={{ width: 6, height: 6, backgroundColor: 'var(--color-cat-logic)', boxShadow: '0 0 6px var(--color-cat-logic-glow)' }} />
+                  <span className="text-[8px] font-bold uppercase tracking-widest" style={{ color: 'var(--color-cat-logic)' }}>
+                    Custom UDFs
+                  </span>
+                </div>
+                {udfs.map((udf) => (
+                  <motion.button
+                    key={udf.id}
+                    className="w-full flex items-center gap-2.5 px-3 py-[6px] text-left transition-colors"
+                    style={{ color: 'var(--color-text-primary)' }}
+                    onClick={() => onSelect(null, udf)}
+                    whileHover={{ backgroundColor: 'color-mix(in srgb, var(--color-cat-logic) 12%, transparent)' }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    <div className="flex items-center justify-center rounded-lg" style={{ width: 26, height: 26, backgroundColor: 'color-mix(in srgb, var(--color-cat-logic) 15%, transparent)', border: '1px solid color-mix(in srgb, var(--color-cat-logic) 30%, transparent)' }}>
+                      <Braces size={12} style={{ color: 'var(--color-cat-logic-glow)' }} strokeWidth={2.5} />
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[11px] font-semibold">{udf.name}</span>
+                      <span className="text-[8px]" style={{ color: 'var(--color-text-secondary)' }}>({udf.args.join(', ')})</span>
+                    </div>
+                  </motion.button>
+                ))}
+              </div>
+            )}
           </div>
         </motion.div>
       )}

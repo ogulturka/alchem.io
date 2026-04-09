@@ -152,6 +152,11 @@ body {
   transition: box-shadow 0.25s ease, border-color 0.25s ease;
 }
 
+/* Ghost node preview styling */
+.react-flow__node.node-ghost {
+  pointer-events: none;
+}
+
 /* Controls */
 .react-flow__controls button {
   background-color: var(--color-bg-secondary) !important;

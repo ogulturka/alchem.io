@@ -26,6 +26,33 @@ function buildMappings(nodes, edges) {
   const nodeMap = new Map(nodes.map((n) => [n.id, n]))
   const mappings = []
 
+  // Recursively trace backwards from a node to find source-payload handles
+  function traceToSource(nodeId, visited) {
+    if (visited.has(nodeId)) return [] // prevent infinite loops
+    visited.add(nodeId)
+
+    const results = []
+    const incomingEdges = edges.filter((e) => e.target === nodeId)
+
+    for (const edge of incomingEdges) {
+      const srcNode = nodeMap.get(edge.source)
+      if (!srcNode) continue
+
+      const handleName = edge.targetHandle?.replace('in-', '') || 'input'
+
+      if (srcNode.id === 'source-payload') {
+        results.push({ handleName, sourcePath: edge.sourceHandle })
+      } else if (srcNode.type === 'transform' || srcNode.type === 'udf') {
+        // Recurse deeper through chained transforms/UDFs
+        const deeper = traceToSource(srcNode.id, visited)
+        for (const d of deeper) {
+          results.push({ handleName, sourcePath: d.sourcePath })
+        }
+      }
+    }
+    return results
+  }
+
   // Find all edges that end at target-payload
   const targetIncoming = edges.filter((e) => e.target === 'target-payload')
 
@@ -37,7 +64,6 @@ function buildMappings(nodes, edges) {
     if (!sourceNode) continue
 
     if (sourceNode.id === 'source-payload') {
-      // Direct mapping: source → target (no transform)
       mappings.push({
         targetPath,
         sourcePaths: [tEdge.sourceHandle],
@@ -45,41 +71,25 @@ function buildMappings(nodes, edges) {
         nodeData: null,
         transforms: [],
       })
-    } else if (sourceNode.type === 'transform') {
-      // Through transform: find what feeds into this transform
-      const transformInputEdges = edges.filter(
-        (e) => e.target === sourceNode.id
-      )
-      const sourcePaths = []
+    } else if (sourceNode.type === 'transform' || sourceNode.type === 'udf') {
+      const traced = traceToSource(sourceNode.id, new Set())
+      const sourcePaths = traced.map((t) => t.sourcePath)
       const inputMap = {}
-
-      for (const inEdge of transformInputEdges) {
-        const inNode = nodeMap.get(inEdge.source)
-        if (!inNode) continue
-
-        const handleName = inEdge.targetHandle?.replace('in-', '') || 'input'
-
-        if (inNode.id === 'source-payload') {
-          sourcePaths.push(inEdge.sourceHandle)
-          inputMap[handleName] = inEdge.sourceHandle
-        } else if (inNode.type === 'transform') {
-          // Chained transforms — trace deeper (1 level)
-          const deepEdges = edges.filter((e) => e.target === inNode.id)
-          for (const dEdge of deepEdges) {
-            if (dEdge.source === 'source-payload') {
-              sourcePaths.push(dEdge.sourceHandle)
-              inputMap[handleName] = dEdge.sourceHandle
-            }
-          }
-        }
+      for (const t of traced) {
+        inputMap[t.handleName] = t.sourcePath
       }
 
+      const isUdf = sourceNode.type === 'udf'
       mappings.push({
         targetPath,
         sourcePaths,
         inputMap,
         nodeData: sourceNode.data,
-        transforms: [{ operation: sourceNode.data.operation, nodeId: sourceNode.id }],
+        transforms: [{
+          operation: isUdf ? 'udf' : sourceNode.data.operation,
+          nodeId: sourceNode.id,
+          ...(isUdf ? { udfName: sourceNode.data.name, udfArgs: sourceNode.data.args, udfCode: sourceNode.data.code } : {}),
+        }],
       })
     }
   }
@@ -213,6 +223,12 @@ function buildXsltSelectExpr(mapping, sourceFormat) {
       const exprA = pathA ? buildXPathExpr(pathA, sourceFormat) : "''"
       const exprB = pathB ? buildXPathExpr(pathB, sourceFormat) : "''"
       return `${exprA} = ${exprB}`
+    }
+
+    case 'udf': {
+      // XSLT cannot execute custom code — pass through first source as fallback
+      const src = m.sourcePaths[0]
+      return src ? buildXPathExpr(src, sourceFormat) : "''"
     }
 
     default:
@@ -461,6 +477,25 @@ export function generateGroovy(nodes, edges, sourceFormat, targetFormat, platfor
   lines.push(` * Mappings: ${mappings.length} field(s)`)
   lines.push(' */')
 
+  // ── Inject UDF function definitions ──
+  const udfDefs = new Set()
+  for (const m of mappings) {
+    if (m.transforms.length > 0 && m.transforms[0].operation === 'udf') {
+      const t = m.transforms[0]
+      if (!udfDefs.has(t.udfName)) {
+        udfDefs.add(t.udfName)
+        lines.push(`// ─── UDF: ${t.udfName} ───`)
+        lines.push(`def ${t.udfName}(${t.udfArgs.join(', ')}) {`)
+        const codeLines = (t.udfCode || '').split('\n')
+        for (const cl of codeLines) {
+          lines.push(`    ${cl}`)
+        }
+        lines.push('}')
+        lines.push('')
+      }
+    }
+  }
+
   // ── Function signature ──
   lines.push(config.fnSignature)
   lines.push(config.getBody)
@@ -564,6 +599,13 @@ export function generateGroovy(nodes, edges, sourceFormat, targetFormat, platfor
         const accA = pathA ? `${buildGroovyAccessor(pathA, sourceFormat)}.toString()` : '""'
         const accB = pathB ? `${buildGroovyAccessor(pathB, sourceFormat)}.toString()` : '""'
         lines.push(`    def ${varName} = ${accA} == ${accB}`)
+      } else if (op === 'udf') {
+        const t = m.transforms[0]
+        const udfArgs = (t.udfArgs || []).map((argName) => {
+          const srcPath = m.inputMap?.[argName] || m.sourcePaths[0]
+          return srcPath ? buildGroovyAccessor(srcPath, sourceFormat) : '""'
+        })
+        lines.push(`    def ${varName} = ${t.udfName}(${udfArgs.join(', ')})`)
       } else {
         // Generic transform (uppercase, formatDate, etc.)
         const srcPath = m.sourcePaths[0]

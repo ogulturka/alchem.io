@@ -141,25 +141,37 @@ export default function TransformNode({ id, data }) {
   const cat = categories[config.category]
   const Icon = config.icon
   const updateNodeData = useAppStore((s) => s.updateNodeData)
+  const isGhost = data.__ghost === true
 
   return (
     <motion.div
-      className="rounded-2xl border"
+      className="rounded-xl border"
       style={{
         backgroundColor: 'var(--color-bg-tertiary)',
-        borderColor: cat.color,
+        borderColor: isGhost ? '#a855f7' : cat.color,
+        borderStyle: isGhost ? 'dashed' : 'solid',
+        borderWidth: isGhost ? 2 : 1,
         minWidth: 200,
-        boxShadow: `0 4px 24px ${cat.bg}, 0 0 12px ${cat.bg}, inset 0 1px 0 rgba(255,255,255,0.03)`,
+        opacity: isGhost ? 0.55 : 1,
+        boxShadow: isGhost
+          ? '0 0 20px rgba(168,85,247,0.3), 0 0 40px rgba(168,85,247,0.15)'
+          : `0 4px 24px ${cat.bg}, 0 0 12px ${cat.bg}, inset 0 1px 0 rgba(255,255,255,0.03)`,
+        filter: isGhost ? 'saturate(0.7)' : 'none',
+        pointerEvents: isGhost ? 'none' : 'auto',
       }}
-      whileHover={{
+      whileHover={isGhost ? {} : {
         scale: 1.04,
         boxShadow: `0 0 24px ${cat.glow}, 0 0 48px ${cat.bg}`,
       }}
-      transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+      animate={isGhost ? { opacity: [0.4, 0.6, 0.4] } : {}}
+      transition={isGhost
+        ? { duration: 2, repeat: Infinity, ease: 'easeInOut' }
+        : { type: 'spring', stiffness: 400, damping: 25 }
+      }
     >
       {/* ── Header: Microchip style ── */}
       <div
-        className="flex items-center gap-3 px-4 py-2.5 rounded-t-2xl"
+        className="flex items-center gap-3 px-4 py-2.5 rounded-t-xl"
         style={{
           background: `linear-gradient(135deg, ${cat.color}, ${cat.glow})`,
         }}
@@ -174,7 +186,7 @@ export default function TransformNode({ id, data }) {
           {config.label}
         </span>
         <span
-          className="text-[8px] font-bold uppercase tracking-wider ml-auto px-2 py-1 rounded-full"
+          className="text-[8px] font-bold uppercase tracking-wider ml-auto px-2 py-1 rounded-md"
           style={{ backgroundColor: 'rgba(0,0,0,0.25)', color: 'rgba(255,255,255,0.8)' }}
         >
           {cat.label}
@@ -388,7 +400,7 @@ export default function TransformNode({ id, data }) {
 
       {/* ── Footer ── */}
       <div
-        className="px-4 py-2 border-t rounded-b-2xl"
+        className="px-4 py-2 border-t rounded-b-xl"
         style={{ borderColor: `color-mix(in srgb, ${cat.color} 30%, transparent)`, backgroundColor: cat.bg }}
       >
         <span className="text-[9px] font-mono" style={{ color: 'var(--color-text-secondary)' }}>

@@ -107,7 +107,7 @@ export default function RightPanel() {
         {/* Layer 1.5: Test Sandbox Button */}
         <motion.button
           onClick={() => setSandboxOpen(true)}
-          className="w-full py-3 px-5 rounded-xl font-semibold text-[12px] tracking-wider cursor-pointer flex items-center justify-center gap-2"
+          className="w-full py-3 px-5 rounded-lg font-semibold text-[12px] tracking-wider cursor-pointer flex items-center justify-center gap-2"
           style={{
             backgroundColor: 'var(--color-bg-tertiary)',
             border: '1px solid var(--color-border)',
@@ -136,7 +136,7 @@ export default function RightPanel() {
           <select
             value={groovyPlatform}
             onChange={(e) => setGroovyPlatform(e.target.value)}
-            className="w-full px-4 py-3 rounded-xl text-[12px] font-medium cursor-pointer outline-none transition-all duration-200"
+            className="w-full px-4 py-3 rounded-lg text-[12px] font-medium cursor-pointer outline-none transition-all duration-200"
             style={{
               backgroundColor: 'var(--color-bg-tertiary)',
               borderWidth: '1px',

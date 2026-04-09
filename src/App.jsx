@@ -1,57 +1,122 @@
-import { useEffect } from 'react'
-import { Group, Panel, Separator } from 'react-resizable-panels'
+import { useEffect, useState, useCallback } from 'react'
+import { motion } from 'framer-motion'
+import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import useAppStore from './store/useAppStore'
 import Header from './components/layout/Header'
 import LeftPanel from './components/layout/LeftPanel'
 import MiddlePanel from './components/layout/MiddlePanel'
 import RightPanel from './components/layout/RightPanel'
 
-function ResizeHandle() {
+const PANEL_WIDTH = 340
+const COLLAPSED_WIDTH = 0
+
+function PanelToggle({ side, isOpen, onClick }) {
+  const isLeft = side === 'left'
+  const Icon = isLeft
+    ? (isOpen ? PanelLeftClose : PanelLeftOpen)
+    : (isOpen ? PanelRightClose : PanelRightOpen)
+
   return (
-    <Separator className="group relative flex items-center justify-center w-4">
-      {/* Visible line */}
-      <div
-        className="w-[2px] h-full transition-all duration-200 rounded-full group-hover:w-[3px] group-hover:bg-purple-400 group-data-[separator=drag]:w-[3px] group-data-[separator=drag]:bg-purple-500"
-        style={{
-          backgroundColor: 'var(--color-border)',
-        }}
-      />
-      {/* Glow overlay on hover/drag */}
-      <div
-        className="absolute inset-0 opacity-0 group-hover:opacity-100 group-data-[separator=drag]:opacity-100 transition-opacity duration-200"
-        style={{
-          background: `linear-gradient(90deg, transparent, var(--color-accent-glow), transparent)`,
-          filter: 'blur(4px)',
-        }}
-      />
-    </Separator>
+    <motion.button
+      onClick={onClick}
+      className="absolute top-1/2 -translate-y-1/2 z-30 flex items-center justify-center rounded-full cursor-pointer"
+      style={{
+        width: 28,
+        height: 28,
+        [isLeft ? 'left' : 'right']: -14,
+        backgroundColor: 'var(--color-bg-secondary)',
+        border: '1.5px solid var(--color-border)',
+        color: 'var(--color-text-secondary)',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+      }}
+      whileHover={{
+        scale: 1.15,
+        borderColor: 'var(--color-accent)',
+        color: 'var(--color-accent)',
+        boxShadow: '0 0 12px var(--color-accent-glow)',
+      }}
+      whileTap={{ scale: 0.9 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+      title={isOpen ? `Collapse ${side} panel` : `Expand ${side} panel`}
+    >
+      <Icon size={14} />
+    </motion.button>
   )
 }
 
 export default function App() {
   const theme = useAppStore((s) => s.theme)
+  const [leftOpen, setLeftOpen] = useState(true)
+  const [rightOpen, setRightOpen] = useState(true)
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
   }, [theme])
 
+  const toggleLeft = useCallback(() => setLeftOpen((v) => !v), [])
+  const toggleRight = useCallback(() => setRightOpen((v) => !v), [])
+
   return (
     <div className="h-screen flex flex-col bg-bg-primary text-text-primary transition-colors duration-300">
       <Header />
-      <main className="flex-1 min-h-0 h-full w-full">
-        <Group orientation="horizontal" className="h-full w-full">
-          <Panel defaultSize="20%" minSize="15%" maxSize="40%">
+      <main className="flex-1 min-h-0 flex w-full">
+
+        {/* ── Left Panel ── */}
+        <div
+          className="h-full shrink-0 overflow-hidden relative"
+          style={{
+            width: leftOpen ? PANEL_WIDTH : COLLAPSED_WIDTH,
+            transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+          }}
+        >
+          <div
+            className="h-full"
+            style={{
+              width: PANEL_WIDTH,
+              opacity: leftOpen ? 1 : 0,
+              transition: 'opacity 0.2s ease',
+              pointerEvents: leftOpen ? 'auto' : 'none',
+            }}
+          >
             <LeftPanel />
-          </Panel>
-          <ResizeHandle />
-          <Panel defaultSize="60%" minSize="30%">
-            <MiddlePanel />
-          </Panel>
-          <ResizeHandle />
-          <Panel defaultSize="20%" minSize="15%" maxSize="40%">
+          </div>
+        </div>
+
+        {/* ── Divider Left ── */}
+        <div className="relative shrink-0" style={{ width: 1, backgroundColor: 'var(--color-border)' }}>
+          <PanelToggle side="left" isOpen={leftOpen} onClick={toggleLeft} />
+        </div>
+
+        {/* ── Center Canvas ── */}
+        <div className="flex-1 min-w-0 h-full">
+          <MiddlePanel />
+        </div>
+
+        {/* ── Divider Right ── */}
+        <div className="relative shrink-0" style={{ width: 1, backgroundColor: 'var(--color-border)' }}>
+          <PanelToggle side="right" isOpen={rightOpen} onClick={toggleRight} />
+        </div>
+
+        {/* ── Right Panel ── */}
+        <div
+          className="h-full shrink-0 overflow-hidden relative"
+          style={{
+            width: rightOpen ? PANEL_WIDTH : COLLAPSED_WIDTH,
+            transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+          }}
+        >
+          <div
+            className="h-full"
+            style={{
+              width: PANEL_WIDTH,
+              opacity: rightOpen ? 1 : 0,
+              transition: 'opacity 0.2s ease',
+              pointerEvents: rightOpen ? 'auto' : 'none',
+            }}
+          >
             <RightPanel />
-          </Panel>
-        </Group>
+          </div>
+        </div>
       </main>
     </div>
   )

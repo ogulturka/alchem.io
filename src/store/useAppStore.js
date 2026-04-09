@@ -184,13 +184,10 @@ const useAppStore = create((set, get) => ({
     const result = convertPayload(requestCode, oldFormat, newFormat)
     if (result.error) {
       console.warn('[Alchem.io] Source conversion failed:', result.error)
-      set({
-        sourceFormat: newFormat,
-        conversionError: { ...get().conversionError, source: result.error },
-      })
+      // Don't change format on failure — keep format/content in sync
+      set({ conversionError: { ...get().conversionError, source: result.error } })
     } else {
       set({ sourceFormat: newFormat, requestCode: result.text, conversionError: { ...get().conversionError, source: null } })
-      // Auto-sync tree after successful conversion
       setTimeout(() => get().syncSourceTree(), 0)
     }
   },
@@ -201,13 +198,9 @@ const useAppStore = create((set, get) => ({
     const result = convertPayload(responseStructure, oldFormat, newFormat)
     if (result.error) {
       console.warn('[Alchem.io] Target conversion failed:', result.error)
-      set({
-        targetFormat: newFormat,
-        conversionError: { ...get().conversionError, target: result.error },
-      })
+      set({ conversionError: { ...get().conversionError, target: result.error } })
     } else {
       set({ targetFormat: newFormat, responseStructure: result.text, conversionError: { ...get().conversionError, target: null } })
-      // Auto-sync tree after successful conversion
       setTimeout(() => get().syncTargetTree(), 0)
     }
   },
@@ -266,11 +259,45 @@ const useAppStore = create((set, get) => ({
     const data = { operation, ...(defaults[operation] || {}) }
     set({ nodes: [...get().nodes, { id, type: 'transform', position, data }] })
   },
+  clearMappings: () => {
+    const { nodes } = get()
+    set({
+      nodes: nodes.filter((n) => n.id === 'source-payload' || n.id === 'target-payload'),
+      edges: [],
+      generatedCode: { xslt: '', groovy: '' },
+      highlightedEdgeIds: null,
+      highlightedNodeIds: null,
+      lockedEdgeIds: null,
+      lockedNodeIds: null,
+    })
+  },
   updateNodeData: (nodeId, dataUpdate) => {
     set({
       nodes: get().nodes.map((n) =>
         n.id === nodeId ? { ...n, data: { ...n.data, ...dataUpdate } } : n
       ),
+    })
+  },
+
+  updateFieldType: (nodeId, fieldPath, newType) => {
+    function updateTree(items, pathParts) {
+      return items.map((item) => {
+        const name = item.field || item.label || ''
+        if (pathParts.length === 1 && name === pathParts[0] && item.field) {
+          return { ...item, type: newType }
+        }
+        if (name === pathParts[0] && item.children) {
+          return { ...item, children: updateTree(item.children, pathParts.slice(1)) }
+        }
+        return item
+      })
+    }
+    const parts = fieldPath.split('.')
+    set({
+      nodes: get().nodes.map((n) => {
+        if (n.id !== nodeId) return n
+        return { ...n, data: { ...n.data, tree: updateTree(n.data.tree, parts) } }
+      }),
     })
   },
 
@@ -290,6 +317,12 @@ const useAppStore = create((set, get) => ({
     const { edges } = get()
     return edges.filter((e) => e.source === nodeId || e.target === nodeId).map((e) => e.id)
   },
+
+  // ── UDF Library ──
+  udfs: [], // [{ id, name, args: ['arg1','arg2'], code: '...' }]
+  addUdf: (udf) => set({ udfs: [...get().udfs, { ...udf, id: `udf-${Date.now()}` }] }),
+  updateUdf: (id, updates) => set({ udfs: get().udfs.map((u) => u.id === id ? { ...u, ...updates } : u) }),
+  removeUdf: (id) => set({ udfs: get().udfs.filter((u) => u.id !== id) }),
 
   // ── Code Generation ──
   isGenerating: false,

@@ -1,9 +1,12 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Play, FlaskConical, FileInput, FileOutput, FileCode, AlertTriangle, Sparkles } from 'lucide-react'
+import { X, Play, FlaskConical, FileInput, FileOutput, FileCode, FileCheck2, AlertTriangle, Sparkles, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react'
 import CodeEditor from '../editors/CodeEditor'
 import useAppStore from '../../store/useAppStore'
 import { executeGroovyMock } from '../../utils/groovyMockEngine'
+import { validateAgainstTargetSchema, buildTypeMapFromTree } from '../../utils/schemaValidator'
+import { alchemizeMismatches } from '../../utils/alchemizeMismatches'
+import { generateXSLT, generateGroovy } from '../../utils/codeGenerator'
 
 // ── XML Formatter ──
 
@@ -242,12 +245,123 @@ function EngineTab({ label, isActive, onClick, color }) {
   )
 }
 
+// ── Visual Diff Engine ──
+
+function flattenForDiff(obj, prefix = '') {
+  const entries = []
+  for (const [key, value] of Object.entries(obj)) {
+    const path = prefix ? `${prefix}.${key}` : key
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      entries.push({ path, key, type: 'object', depth: path.split('.').length - 1 })
+      entries.push(...flattenForDiff(value, path))
+    } else {
+      entries.push({ path, key, value: String(value ?? ''), type: typeof value, depth: path.split('.').length - 1 })
+    }
+  }
+  return entries
+}
+
+function xmlToObj(xmlStr) {
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(xmlStr, 'application/xml')
+  if (doc.querySelector('parsererror')) return null
+  function walk(n) {
+    const ch = Array.from(n.children)
+    if (!ch.length) { const t = n.textContent || ''; return /^-?\d+(\.\d+)?$/.test(t.trim()) && t.trim() ? Number(t) : t }
+    const o = {}; for (const c of ch) o[c.tagName] = walk(c); return o
+  }
+  return walk(doc.documentElement)
+}
+
+function buildDiffLines(resultString, targetString, targetFormat) {
+  let resultObj, targetObj
+  try {
+    const rt = (resultString || '').trim()
+    if (rt.startsWith('{')) resultObj = JSON.parse(rt)
+    else if (rt.startsWith('<')) resultObj = xmlToObj(rt)
+  } catch { resultObj = null }
+  try {
+    if (targetFormat === 'json') targetObj = JSON.parse(targetString)
+    else targetObj = xmlToObj(targetString)
+  } catch { targetObj = null }
+
+  if (!targetObj) return { targetLines: [], resultLines: [] }
+
+  const targetEntries = flattenForDiff(targetObj)
+  const resultFlat = resultObj ? Object.fromEntries(
+    flattenForDiff(resultObj).filter((e) => e.type !== 'object').map((e) => [e.path, e.value])
+  ) : {}
+  const resultPaths = resultObj ? new Set(flattenForDiff(resultObj).map((e) => e.path)) : new Set()
+
+  // Build target lines with diff status
+  const targetLines = targetEntries.map((entry) => {
+    if (entry.type === 'object') {
+      return { text: `${'  '.repeat(entry.depth)}${entry.key}: {`, status: 'neutral', path: entry.path }
+    }
+    const indent = '  '.repeat(entry.depth)
+    const line = `${indent}${entry.key}: ${entry.value}`
+    if (!resultPaths.has(entry.path)) {
+      return { text: line, status: 'missing', path: entry.path }
+    }
+    const actualVal = resultFlat[entry.path]
+    if (actualVal !== undefined && actualVal !== entry.value) {
+      return { text: line, status: 'mismatch', path: entry.path, actual: actualVal }
+    }
+    return { text: line, status: 'match', path: entry.path }
+  })
+
+  return { targetLines }
+}
+
+/** Render color-coded diff lines */
+function DiffView({ lines }) {
+  if (!lines || lines.length === 0) return null
+
+  const statusStyles = {
+    match: { bg: 'rgba(34,197,94,0.08)', border: '#22c55e', color: '#86efac' },
+    missing: { bg: 'rgba(239,68,68,0.08)', border: '#ef4444', color: '#fca5a5' },
+    mismatch: { bg: 'rgba(245,158,11,0.08)', border: '#f59e0b', color: '#fcd34d' },
+    neutral: { bg: 'transparent', border: 'transparent', color: 'var(--color-text-secondary)' },
+  }
+
+  return (
+    <div className="h-full overflow-auto p-3 font-mono text-[11px] leading-relaxed" style={{ backgroundColor: 'rgba(0,0,0,0.2)' }}>
+      {lines.map((line, i) => {
+        const s = statusStyles[line.status] || statusStyles.neutral
+        return (
+          <div
+            key={i}
+            className="flex items-start gap-2 px-2 py-0.5 rounded-sm my-px"
+            style={{
+              backgroundColor: s.bg,
+              borderLeft: `3px solid ${s.border}`,
+              color: s.color,
+            }}
+          >
+            <span className="shrink-0 w-3 text-center text-[8px] mt-0.5" style={{ color: s.border }}>
+              {line.status === 'match' ? '✓' : line.status === 'missing' ? '✗' : line.status === 'mismatch' ? '~' : ''}
+            </span>
+            <span className="whitespace-pre">{line.text}</span>
+            {line.status === 'mismatch' && line.actual && (
+              <span className="ml-auto text-[9px] shrink-0 px-1.5 rounded" style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>
+                got: {line.actual}
+              </span>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── Main Modal ──
 
 export default function TestSandboxModal({ open, onClose }) {
   const requestCode = useAppStore((s) => s.requestCode)
   const generatedCode = useAppStore((s) => s.generatedCode)
   const sourceFormat = useAppStore((s) => s.sourceFormat)
+  const targetFormat = useAppStore((s) => s.targetFormat)
+  const responseStructure = useAppStore((s) => s.responseStructure)
 
   const [engine, setEngine] = useState('xslt') // 'xslt' | 'groovy'
   const [inputPayload, setInputPayload] = useState(requestCode)
@@ -258,6 +372,8 @@ export default function TestSandboxModal({ open, onClose }) {
   const [isExecuting, setIsExecuting] = useState(false)
   const [canAutoFix, setCanAutoFix] = useState(false)
   const [autoFixApplied, setAutoFixApplied] = useState(false)
+  const [validation, setValidation] = useState(null) // { status, matchPercent, errors }
+  const [validationExpanded, setValidationExpanded] = useState(false)
   const pendingAutoRun = useRef(false)
 
   // Sync input payload when the modal opens or source changes
@@ -270,6 +386,8 @@ export default function TestSandboxModal({ open, onClose }) {
       setIsError(false)
       setCanAutoFix(false)
       setAutoFixApplied(false)
+      setValidation(null)
+      setValidationExpanded(false)
     }
   }, [open, requestCode, generatedCode.xslt, generatedCode.groovy])
 
@@ -281,11 +399,23 @@ export default function TestSandboxModal({ open, onClose }) {
     }
   }, [xsltScript])
 
+  const runValidation = useCallback((resultStr) => {
+    if (responseStructure) {
+      // Read user-defined type overrides from the target payload tree
+      const targetNode = useAppStore.getState().nodes.find((n) => n.id === 'target-payload')
+      const typeOverrides = targetNode?.data?.tree ? buildTypeMapFromTree(targetNode.data.tree) : null
+      const v = validateAgainstTargetSchema(resultStr, responseStructure, targetFormat, typeOverrides)
+      setValidation(v)
+      setValidationExpanded(false)
+    }
+  }, [responseStructure, targetFormat])
+
   const handleExecute = useCallback(() => {
     setIsExecuting(true)
     setOutputResult('')
     setIsError(false)
     setCanAutoFix(false)
+    setValidation(null)
 
     setTimeout(() => {
       if (engine === 'xslt') {
@@ -299,15 +429,13 @@ export default function TestSandboxModal({ open, onClose }) {
         if (error) {
           setOutputResult(error)
           setIsError(true)
-          // Always show auto-fix on XSLT errors — it handles 2.0 features,
-          // namespace cleanup, and other common browser-incompatible patterns
           setCanAutoFix(true)
         } else {
           setOutputResult(result)
           setIsError(false)
+          runValidation(result)
         }
       } else {
-        // Groovy mock engine
         if (!groovyScript || groovyScript.startsWith('//')) {
           setOutputResult('Error: No Groovy code generated yet.\nClick "Alchemize Code" first to generate the Groovy script.')
           setIsError(true)
@@ -321,11 +449,12 @@ export default function TestSandboxModal({ open, onClose }) {
         } else {
           setOutputResult(result)
           setIsError(false)
+          runValidation(result)
         }
       }
       setIsExecuting(false)
     }, 300)
-  }, [inputPayload, engine, xsltScript, groovyScript, sourceFormat])
+  }, [inputPayload, engine, xsltScript, groovyScript, sourceFormat, runValidation])
 
   const handleAlchemizeError = useCallback(() => {
     const { fixedXslt } = autoFixXSLT(xsltScript, outputResult)
@@ -338,10 +467,62 @@ export default function TestSandboxModal({ open, onClose }) {
     pendingAutoRun.current = true
   }, [xsltScript, outputResult])
 
+  const handleAlchemizeMismatches = useCallback(() => {
+    if (!validation || validation.errors.length === 0) return
+
+    const storeState = useAppStore.getState()
+    const sourcePayload = storeState.nodes.find((n) => n.id === 'source-payload')
+
+    const { newNodes, newEdges, fixes, removeEdgeIds } = alchemizeMismatches({
+      errors: validation.errors,
+      targetPayload: responseStructure,
+      targetFormat,
+      resultString: outputResult,
+      sourceTree: sourcePayload?.data?.tree || [],
+      nodes: storeState.nodes,
+      edges: storeState.edges,
+    })
+
+    if (newNodes.length === 0 && newEdges.length === 0) {
+      setValidation((v) => ({ ...v, _fixNote: 'No auto-fixable mismatches found.' }))
+      return
+    }
+
+    // Apply to store: add new nodes/edges, remove replaced edges
+    const updatedEdges = storeState.edges
+      .filter((e) => !removeEdgeIds.includes(e.id))
+      .concat(newEdges.map((e) => { const { _removeEdgeIds, ...rest } = e; return rest }))
+
+    const updatedNodes = [...storeState.nodes, ...newNodes]
+
+    useAppStore.setState({ nodes: updatedNodes, edges: updatedEdges })
+
+    // Regenerate code with new graph
+    const { sourceFormat: sf, targetFormat: tf, groovyPlatform: gp } = storeState
+    const xslt = generateXSLT(updatedNodes, updatedEdges, sf, tf)
+    const groovy = generateGroovy(updatedNodes, updatedEdges, sf, tf, gp)
+    useAppStore.setState({ generatedCode: { xslt, groovy } })
+
+    // Update sandbox editors
+    setXsltScript(xslt)
+    setGroovyScript(groovy)
+
+    // Clear validation and auto-rerun
+    setValidation(null)
+    setOutputResult('')
+    setAutoFixApplied(false)
+    pendingAutoRun.current = true
+  }, [validation, responseStructure, targetFormat, outputResult])
+
+  // Compute diff lines when result and target are both available
+  const diffLines = useMemo(() => {
+    if (!outputResult || isError || !responseStructure) return []
+    const { targetLines } = buildDiffLines(outputResult, responseStructure, targetFormat)
+    return targetLines
+  }, [outputResult, isError, responseStructure, targetFormat])
+
   const isXslt = engine === 'xslt'
-  const inputLabel = isXslt
-    ? `Input Payload (${sourceFormat === 'xml' ? 'XML' : 'JSON'})`
-    : `Input Payload (${sourceFormat === 'xml' ? 'XML' : 'JSON'})`
+  const inputLabel = `Input Payload (${sourceFormat === 'xml' ? 'XML' : 'JSON'})`
   const inputLang = sourceFormat === 'xml' ? 'xml' : 'json'
   const outputLang = isError ? 'plaintext' : (isXslt ? 'xml' : 'json')
 
@@ -367,7 +548,7 @@ export default function TestSandboxModal({ open, onClose }) {
 
           {/* Modal */}
           <motion.div
-            className="relative flex flex-col rounded-2xl border overflow-hidden"
+            className="relative flex flex-col rounded-xl border overflow-hidden"
             style={{
               width: 'min(95vw, 1400px)',
               height: 'min(88vh, 800px)',
@@ -423,7 +604,7 @@ export default function TestSandboxModal({ open, onClose }) {
               {/* Mock badge for Groovy */}
               {!isXslt && (
                 <span
-                  className="text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider"
+                  className="text-[9px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider"
                   style={{ backgroundColor: 'rgba(234,179,8,0.12)', color: '#eab308' }}
                 >
                   JS Mock
@@ -451,157 +632,132 @@ export default function TestSandboxModal({ open, onClose }) {
               </button>
             </div>
 
-            {/* ── Body ── */}
-            <div className="flex-1 min-h-0 flex">
+            {/* ── Body: 2x2 Grid ── */}
+            <div className="flex-1 min-h-0 grid grid-cols-2 grid-rows-2" style={{ gridTemplateRows: '1fr 1fr' }}>
 
-              {/* Left column: Input Payload */}
-              <div
-                className="flex flex-col min-w-0"
-                style={{ flex: '1 1 33%', borderRight: '1px solid var(--color-border)' }}
-              >
-                <div className="flex items-center gap-2 px-4 py-2.5 shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
-                  <FileInput size={14} style={{ color: 'var(--color-accent)' }} />
-                  <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: 'var(--color-text-secondary)' }}>
-                    {inputLabel}
-                  </span>
+              {/* ── Top-Left: Input Payload ── */}
+              <div className="flex flex-col min-h-0" style={{ borderRight: '1px solid var(--color-border)', borderBottom: '1px solid var(--color-border)' }}>
+                <div className="flex items-center gap-2 px-4 py-2 shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
+                  <FileInput size={13} style={{ color: 'var(--color-accent)' }} />
+                  <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--color-text-secondary)' }}>{inputLabel}</span>
                 </div>
                 <div className="flex-1 min-h-0">
-                  <CodeEditor
-                    value={inputPayload}
-                    onChange={(val) => setInputPayload(val || '')}
-                    language={inputLang}
-                  />
+                  <CodeEditor value={inputPayload} onChange={(val) => setInputPayload(val || '')} language={inputLang} />
                 </div>
               </div>
 
-              {/* Middle column: Script editor (XSLT or Groovy) */}
-              <div
-                className="flex flex-col min-w-0"
-                style={{ flex: '1 1 34%', borderRight: '1px solid var(--color-border)' }}
-              >
-                <div className="flex items-center gap-2 px-4 py-2.5 shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
-                  <FileCode size={14} style={{ color: isXslt ? 'var(--color-accent)' : '#eab308' }} />
-                  <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: 'var(--color-text-secondary)' }}>
+              {/* ── Top-Right: Script Editor ── */}
+              <div className="flex flex-col min-h-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
+                <div className="flex items-center gap-2 px-4 py-2 shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
+                  <FileCode size={13} style={{ color: isXslt ? 'var(--color-accent)' : '#eab308' }} />
+                  <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--color-text-secondary)' }}>
                     {isXslt ? 'XSLT Stylesheet' : 'Groovy Script'}
                   </span>
-                  <span
-                    className="ml-auto text-[9px] px-1.5 py-0.5 rounded font-mono"
-                    style={{
-                      backgroundColor: isXslt ? 'rgba(168,85,247,0.08)' : 'rgba(234,179,8,0.08)',
-                      color: isXslt ? 'var(--color-accent)' : '#eab308',
-                    }}
-                  >
-                    editable
-                  </span>
+                  <span className="ml-auto text-[8px] px-1.5 py-0.5 rounded font-mono" style={{ backgroundColor: isXslt ? 'rgba(168,85,247,0.08)' : 'rgba(234,179,8,0.08)', color: isXslt ? 'var(--color-accent)' : '#eab308' }}>editable</span>
                 </div>
                 <div className="flex-1 min-h-0">
-                  {isXslt ? (
-                    <CodeEditor
-                      value={xsltScript}
-                      onChange={(val) => setXsltScript(val || '')}
-                      language="xml"
-                    />
-                  ) : (
-                    <CodeEditor
-                      value={groovyScript}
-                      onChange={(val) => setGroovyScript(val || '')}
-                      language="javascript"
-                    />
-                  )}
+                  {isXslt
+                    ? <CodeEditor value={xsltScript} onChange={(val) => setXsltScript(val || '')} language="xml" />
+                    : <CodeEditor value={groovyScript} onChange={(val) => setGroovyScript(val || '')} language="javascript" />
+                  }
                 </div>
               </div>
 
-              {/* Right column: Output */}
-              <div
-                className="flex flex-col min-w-0"
-                style={{ flex: '1 1 33%' }}
-              >
-                <div className="flex items-center gap-2 px-4 py-2.5 shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
-                  <FileOutput size={14} style={{ color: isError ? '#ef4444' : '#22c55e' }} />
-                  <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: 'var(--color-text-secondary)' }}>
-                    Transformation Result
-                  </span>
+              {/* ── Bottom-Left: Transformation Result ── */}
+              <div className="flex flex-col min-h-0" style={{ borderRight: '1px solid var(--color-border)' }}>
+                <div className="flex items-center gap-2 px-4 py-2 shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
+                  <FileOutput size={13} style={{ color: isError ? '#ef4444' : '#22c55e' }} />
+                  <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--color-text-secondary)' }}>Transformation Result</span>
                   {isError && (
                     <div className="flex items-center gap-1 ml-auto">
-                      <AlertTriangle size={12} color="#ef4444" />
-                      <span className="text-[10px] font-semibold" style={{ color: '#ef4444' }}>Error</span>
+                      <AlertTriangle size={11} color="#ef4444" />
+                      <span className="text-[9px] font-semibold" style={{ color: '#ef4444' }}>Error</span>
                     </div>
+                  )}
+                  {validation && !isError && (
+                    <span className="ml-auto text-[8px] font-bold px-1.5 py-0.5 rounded-md" style={{
+                      backgroundColor: validation.status === 'success' ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)',
+                      color: validation.status === 'success' ? '#22c55e' : '#f59e0b',
+                    }}>
+                      {validation.matchPercent}%
+                    </span>
                   )}
                 </div>
 
-                {/* Auto-fix banner */}
+                {/* Auto-fix banner (XSLT error) */}
                 <AnimatePresence>
                   {isError && canAutoFix && isXslt && (
-                    <motion.div
-                      className="shrink-0 px-3 py-3 flex flex-col gap-2.5"
-                      style={{
-                        background: 'linear-gradient(135deg, rgba(239,68,68,0.06), rgba(168,85,247,0.06))',
-                        borderBottom: '1px solid rgba(239,68,68,0.15)',
-                      }}
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.25 }}
-                    >
-                      <div className="flex items-start gap-2">
-                        <AlertTriangle size={13} color="#ef4444" className="shrink-0 mt-0.5" />
-                        <span className="text-[10px] leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
-                          Transformation failed. Click below to auto-fix browser-incompatible XSLT (2.0 functions, namespaces, etc.) and re-execute.
-                        </span>
-                      </div>
-                      <div className="relative self-center">
-                        <div
-                          className="absolute -inset-1 rounded-lg blur-md opacity-60 animate-pulse"
-                          style={{ background: 'linear-gradient(135deg, #a855f7, #ec4899)' }}
-                        />
-                        <motion.button
-                          onClick={handleAlchemizeError}
-                          className="relative flex items-center gap-2 px-5 py-2 rounded-lg font-bold text-white text-[11px] tracking-wider cursor-pointer"
-                          style={{
-                            background: 'linear-gradient(135deg, #a855f7, #ec4899)',
-                            boxShadow: '0 0 16px rgba(168,85,247,0.4), 0 2px 8px rgba(0,0,0,0.3)',
-                            border: 'none',
-                          }}
-                          whileHover={{ scale: 1.05, boxShadow: '0 0 24px rgba(168,85,247,0.6), 0 4px 12px rgba(0,0,0,0.3)' }}
-                          whileTap={{ scale: 0.95 }}
-                          transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-                        >
-                          <Sparkles size={14} />
-                          Alchemize Error
-                        </motion.button>
-                      </div>
+                    <motion.div className="shrink-0 px-3 py-2 flex items-center gap-2" style={{ background: 'linear-gradient(135deg, rgba(239,68,68,0.06), rgba(168,85,247,0.06))', borderBottom: '1px solid rgba(239,68,68,0.15)' }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                      <AlertTriangle size={12} color="#ef4444" />
+                      <span className="text-[9px]" style={{ color: 'var(--color-text-secondary)' }}>Browser-incompatible XSLT detected</span>
+                      <motion.button onClick={handleAlchemizeError} className="ml-auto flex items-center gap-1.5 px-3 py-1 rounded-lg font-bold text-white text-[9px] tracking-wider cursor-pointer" style={{ background: 'linear-gradient(135deg, #a855f7, #ec4899)', border: 'none', boxShadow: '0 0 8px rgba(168,85,247,0.3)' }} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                        <Sparkles size={11} /> Auto-Fix
+                      </motion.button>
                     </motion.div>
                   )}
                 </AnimatePresence>
-
-                {/* Auto-fix success banner */}
                 <AnimatePresence>
                   {autoFixApplied && !isError && (
-                    <motion.div
-                      className="shrink-0 px-3 py-2 flex items-center gap-2"
-                      style={{
-                        background: 'rgba(34,197,94,0.06)',
-                        borderBottom: '1px solid rgba(34,197,94,0.15)',
-                      }}
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.25 }}
-                    >
-                      <Sparkles size={12} color="#22c55e" />
-                      <span className="text-[10px] font-semibold" style={{ color: '#22c55e' }}>
-                        Auto-fixed! XSLT downgraded to 1.0 and re-executed successfully.
-                      </span>
+                    <motion.div className="shrink-0 px-3 py-1.5 flex items-center gap-2" style={{ background: 'rgba(34,197,94,0.06)', borderBottom: '1px solid rgba(34,197,94,0.15)' }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                      <Sparkles size={11} color="#22c55e" />
+                      <span className="text-[9px] font-semibold" style={{ color: '#22c55e' }}>Auto-fixed and re-executed</span>
                     </motion.div>
                   )}
                 </AnimatePresence>
 
                 <div className="flex-1 min-h-0" style={isError ? { background: 'rgba(239,68,68,0.03)' } : {}}>
-                  <CodeEditor
-                    value={outputResult}
-                    language={outputLang}
-                    readOnly
-                  />
+                  <CodeEditor value={outputResult} language={outputLang} readOnly />
+                </div>
+              </div>
+
+              {/* ── Bottom-Right: Expected Target + Visual Diff ── */}
+              <div className="flex flex-col min-h-0">
+                <div className="flex items-center gap-2 px-4 py-2 shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
+                  <FileCheck2 size={13} style={{ color: '#60a5fa' }} />
+                  <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--color-text-secondary)' }}>Expected Target (Diff)</span>
+                  {/* Legend */}
+                  <div className="flex items-center gap-2 ml-auto">
+                    <span className="flex items-center gap-1 text-[8px]"><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#22c55e' }} /> Match</span>
+                    <span className="flex items-center gap-1 text-[8px]"><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#ef4444' }} /> Missing</span>
+                    <span className="flex items-center gap-1 text-[8px]"><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#f59e0b' }} /> Mismatch</span>
+                  </div>
+                </div>
+
+                {/* Validation summary + Alchemize button */}
+                {validation && !isError && validation.errors.length > 0 && (
+                  <div className="shrink-0 px-3 py-2 flex items-center gap-2" style={{ background: 'rgba(245,158,11,0.04)', borderBottom: '1px solid rgba(245,158,11,0.1)' }}>
+                    <AlertTriangle size={12} color="#f59e0b" />
+                    <span className="text-[9px] font-semibold" style={{ color: '#f59e0b' }}>
+                      {validation.errors.length} mismatch{validation.errors.length !== 1 ? 'es' : ''}
+                    </span>
+                    <div className="relative ml-auto">
+                      <div className="absolute -inset-0.5 rounded-lg blur-sm opacity-50 animate-pulse" style={{ background: 'linear-gradient(135deg, #f59e0b, #ef4444)' }} />
+                      <motion.button
+                        onClick={handleAlchemizeMismatches}
+                        className="relative flex items-center gap-1.5 px-3 py-1 rounded-lg font-bold text-white text-[9px] tracking-wider cursor-pointer"
+                        style={{ background: 'linear-gradient(135deg, #f59e0b, #ef4444)', border: 'none', boxShadow: '0 0 8px rgba(245,158,11,0.3)' }}
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        <Sparkles size={11} /> Alchemize Mismatches
+                      </motion.button>
+                    </div>
+                  </div>
+                )}
+                {validation && !isError && validation.errors.length === 0 && (
+                  <div className="shrink-0 px-3 py-1.5 flex items-center gap-2" style={{ background: 'rgba(34,197,94,0.06)', borderBottom: '1px solid rgba(34,197,94,0.1)' }}>
+                    <CheckCircle2 size={12} color="#22c55e" />
+                    <span className="text-[9px] font-bold" style={{ color: '#22c55e' }}>Target Schema Validated — 100% Match</span>
+                  </div>
+                )}
+
+                {/* Diff view or static target */}
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  {diffLines.length > 0 ? (
+                    <DiffView lines={diffLines} />
+                  ) : (
+                    <CodeEditor value={responseStructure} language={targetFormat === 'json' ? 'json' : 'xml'} readOnly />
+                  )}
                 </div>
               </div>
             </div>
@@ -622,7 +778,7 @@ export default function TestSandboxModal({ open, onClose }) {
                 <motion.button
                   onClick={handleExecute}
                   disabled={isExecuting}
-                  className="relative flex items-center gap-2.5 px-10 py-3 rounded-full font-bold text-white text-sm tracking-wider cursor-pointer disabled:cursor-wait"
+                  className="relative flex items-center gap-2.5 px-10 py-3 rounded-lg font-bold text-white text-sm tracking-wider cursor-pointer disabled:cursor-wait"
                   style={{
                     background: isXslt
                       ? 'linear-gradient(135deg, var(--color-accent), var(--color-accent-glow))'
