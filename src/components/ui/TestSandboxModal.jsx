@@ -73,9 +73,28 @@ function executeXsltTransform(inputXml, xsltString) {
 const LOWER = 'abcdefghijklmnopqrstuvwxyz'
 const UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 
-function autoFixXSLT(rawXslt) {
+function autoFixXSLT(rawXslt, errorMessage = '') {
   let xslt = rawXslt
   const fixes = []
+  const errLower = errorMessage.toLowerCase()
+
+  // 0. Structural fix: "Extra content at the end" / "multiple root" — wrap template body in <Root>
+  if (errLower.includes('extra content') || errLower.includes('multiple root') || errLower.includes('junk after document')) {
+    const templateMatch = xslt.match(
+      /(<xsl:template\s+match="[^"]*">)([\s\S]*?)(<\/xsl:template>)/
+    )
+    if (templateMatch) {
+      const body = templateMatch[2]
+      // Check if body has multiple top-level elements
+      const topElements = body.match(/<(?!xsl:|\/)[A-Za-z][\w.-]*/g)
+      const closingElements = body.match(/<\/(?!xsl:)[A-Za-z][\w.-]*/g)
+      if (topElements && closingElements && topElements.length > 1) {
+        const wrappedBody = `\n      <Root>${body}      </Root>\n    `
+        xslt = xslt.replace(templateMatch[2], wrappedBody)
+        fixes.push('Wrapped multiple root elements inside <Root> tag')
+      }
+    }
+  }
 
   // 1. Version downgrade
   if (/version\s*=\s*"2\.0"/.test(xslt)) {
@@ -309,7 +328,7 @@ export default function TestSandboxModal({ open, onClose }) {
   }, [inputPayload, engine, xsltScript, groovyScript, sourceFormat])
 
   const handleAlchemizeError = useCallback(() => {
-    const { fixedXslt } = autoFixXSLT(xsltScript)
+    const { fixedXslt } = autoFixXSLT(xsltScript, outputResult)
     setXsltScript(fixedXslt)
     setCanAutoFix(false)
     setAutoFixApplied(true)
@@ -317,7 +336,7 @@ export default function TestSandboxModal({ open, onClose }) {
     setOutputResult('')
     // Schedule auto-run after state updates
     pendingAutoRun.current = true
-  }, [xsltScript])
+  }, [xsltScript, outputResult])
 
   const isXslt = engine === 'xslt'
   const inputLabel = isXslt

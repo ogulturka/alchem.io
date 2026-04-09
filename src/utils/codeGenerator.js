@@ -310,7 +310,17 @@ export function generateXSLT(nodes, edges, sourceFormat, targetFormat) {
     return lines
   }
 
-  const bodyLines = renderTargetElement(targetTree, '      ')
+  // Ensure single root: if multiple top-level keys exist, wrap in <Root>
+  const topKeys = Object.keys(targetTree)
+  let bodyLines
+  if (topKeys.length > 1) {
+    // Multiple roots — wrap everything under a single <Root> element
+    bodyLines = ['      <Root>']
+    bodyLines.push(...renderTargetElement(targetTree, '        '))
+    bodyLines.push('      </Root>')
+  } else {
+    bodyLines = renderTargetElement(targetTree, '      ')
+  }
 
   // Determine root match pattern based on source format
   const matchPattern = sourceFormat === 'xml' ? '/*' : '/'

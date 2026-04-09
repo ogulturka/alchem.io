@@ -7,6 +7,7 @@ import useAppStore from '../../store/useAppStore'
 import PayloadTreeNode from './PayloadTreeNode'
 import TransformNode from './TransformNode'
 import CommandPalette from './CommandPalette'
+import CopilotCommandBar from './CopilotCommandBar'
 
 const nodeTypes = {
   payloadTree: PayloadTreeNode,
@@ -282,6 +283,9 @@ export default function FlowCanvas() {
       >
         <Plus size={20} style={{ color: 'var(--color-accent)' }} />
       </motion.button>
+
+      {/* AI Copilot Command Bar */}
+      <CopilotCommandBar />
 
       {/* Command Palette */}
       <CommandPalette
