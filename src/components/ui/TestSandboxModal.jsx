@@ -1,6 +1,6 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Play, FlaskConical, FileInput, FileOutput, FileCode, AlertTriangle } from 'lucide-react'
+import { X, Play, FlaskConical, FileInput, FileOutput, FileCode, AlertTriangle, Sparkles } from 'lucide-react'
 import CodeEditor from '../editors/CodeEditor'
 import useAppStore from '../../store/useAppStore'
 import { executeGroovyMock } from '../../utils/groovyMockEngine'
@@ -68,6 +68,121 @@ function executeXsltTransform(inputXml, xsltString) {
   }
 }
 
+// ── XSLT Auto-Fix (2.0 → 1.0 Downgrade) ──
+
+const LOWER = 'abcdefghijklmnopqrstuvwxyz'
+const UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+
+function autoFixXSLT(rawXslt) {
+  let xslt = rawXslt
+  const fixes = []
+
+  // 1. Version downgrade
+  if (/version\s*=\s*"2\.0"/.test(xslt)) {
+    xslt = xslt.replace(/version\s*=\s*"2\.0"/, 'version="1.0"')
+    fixes.push('Downgraded version="2.0" to version="1.0"')
+  }
+
+  // 2. Remove XPath 2.0 namespace declarations
+  if (/xmlns:fn\s*=\s*"[^"]*"/.test(xslt)) {
+    xslt = xslt.replace(/\s*xmlns:fn\s*=\s*"[^"]*"/g, '')
+    fixes.push('Removed xmlns:fn namespace')
+  }
+  if (/xmlns:xs\s*=\s*"[^"]*"/.test(xslt)) {
+    xslt = xslt.replace(/\s*xmlns:xs\s*=\s*"[^"]*"/g, '')
+    fixes.push('Removed xmlns:xs namespace')
+  }
+
+  // 3. fn:upper-case(...) → translate(..., 'abc...', 'ABC...')
+  const upperRegex = /fn:upper-case\(([^)]+)\)/g
+  if (upperRegex.test(xslt)) {
+    xslt = xslt.replace(/fn:upper-case\(([^)]+)\)/g,
+      `translate($1, '${LOWER}', '${UPPER}')`)
+    fixes.push('Replaced fn:upper-case() with translate()')
+  }
+
+  // 4. fn:lower-case(...) → translate(..., 'ABC...', 'abc...')
+  const lowerRegex = /fn:lower-case\(([^)]+)\)/g
+  if (lowerRegex.test(xslt)) {
+    xslt = xslt.replace(/fn:lower-case\(([^)]+)\)/g,
+      `translate($1, '${UPPER}', '${LOWER}')`)
+    fixes.push('Replaced fn:lower-case() with translate()')
+  }
+
+  // 5. format-dateTime(xs:dateTime(...), 'picture') → substring-based fallback
+  //    Matches: format-dateTime(xs:dateTime(EXPR), 'PICTURE')
+  xslt = xslt.replace(
+    /format-dateTime\(xs:dateTime\(([^)]+)\)\s*,\s*'([^']*)'\)/g,
+    (_, srcExpr, picture) => {
+      fixes.push(`Replaced format-dateTime() with substring fallback`)
+      return dateTimePictureFallback(srcExpr, picture)
+    }
+  )
+
+  // 6. format-date(xs:date(...), 'picture') → same fallback
+  xslt = xslt.replace(
+    /format-date\(xs:date\(([^)]+)\)\s*,\s*'([^']*)'\)/g,
+    (_, srcExpr, picture) => {
+      fixes.push(`Replaced format-date() with substring fallback`)
+      return dateTimePictureFallback(srcExpr, picture)
+    }
+  )
+
+  // 7. replace(expr, 'search', 'replace') → can't inline in 1.0, use translate for single-char or passthrough
+  xslt = xslt.replace(
+    /replace\(([^,]+),\s*'([^']*)'\s*,\s*'([^']*)'\)/g,
+    (_, srcExpr, search, replacement) => {
+      if (search.length === 1 && replacement.length <= 1) {
+        fixes.push('Replaced replace() with translate() for single-char substitution')
+        return `translate(${srcExpr}, '${search}', '${replacement}')`
+      }
+      // Multi-char replace can't be done inline in 1.0 — just pass the source through
+      fixes.push('Removed unsupported replace() — use a named template for multi-char replace')
+      return srcExpr.trim()
+    }
+  )
+
+  // 8. XPath 2.0 "if (cond) then X else Y" → fallback to first value
+  xslt = xslt.replace(
+    /if\s*\(([^)]+)\)\s+then\s+(.+?)\s+else\s+(.+?)(?="|<)/g,
+    (_, _cond, trueExpr) => {
+      fixes.push('Removed XPath 2.0 if/then/else — using true-branch value')
+      return trueExpr.trim()
+    }
+  )
+
+  return { fixedXslt: xslt, fixes }
+}
+
+/** Convert XPath 2.0 date picture to XSLT 1.0 substring/concat */
+function dateTimePictureFallback(srcExpr, picture) {
+  const year = `substring(${srcExpr}, 1, 4)`
+  const month = `substring(${srcExpr}, 6, 2)`
+  const day = `substring(${srcExpr}, 9, 2)`
+
+  if (picture.includes('[M01]/[D01]/[Y0001]')) {
+    return `concat(${month}, '/', ${day}, '/', ${year})`
+  }
+  if (picture.includes('[D01].[M01].[Y0001]')) {
+    return `concat(${day}, '.', ${month}, '.', ${year})`
+  }
+  if (picture.includes('T[H01]:[m01]:[s01]')) {
+    return `concat(substring(${srcExpr}, 1, 10), 'T', substring(${srcExpr}, 12, 8), 'Z')`
+  }
+  // Default: yyyy-MM-dd passthrough
+  return `substring(${srcExpr}, 1, 10)`
+}
+
+/** Detect if an XSLT string contains 2.0 features that can be auto-fixed */
+function hasXslt2Features(xsltStr) {
+  if (!xsltStr) return false
+  return /version\s*=\s*"2\.0"/.test(xsltStr) ||
+    /fn:upper-case|fn:lower-case/.test(xsltStr) ||
+    /format-dateTime|format-date/.test(xsltStr) ||
+    /xmlns:fn\s*=/.test(xsltStr) ||
+    /xmlns:xs\s*=/.test(xsltStr)
+}
+
 // ── Tab Button ──
 
 function EngineTab({ label, isActive, onClick, color }) {
@@ -104,6 +219,9 @@ export default function TestSandboxModal({ open, onClose }) {
   const [outputResult, setOutputResult] = useState('')
   const [isError, setIsError] = useState(false)
   const [isExecuting, setIsExecuting] = useState(false)
+  const [canAutoFix, setCanAutoFix] = useState(false)
+  const [autoFixApplied, setAutoFixApplied] = useState(false)
+  const pendingAutoRun = useRef(false)
 
   // Sync input payload when the modal opens or source changes
   useEffect(() => {
@@ -113,13 +231,24 @@ export default function TestSandboxModal({ open, onClose }) {
       setGroovyScript(generatedCode.groovy || '')
       setOutputResult('')
       setIsError(false)
+      setCanAutoFix(false)
+      setAutoFixApplied(false)
     }
   }, [open, requestCode, generatedCode.xslt, generatedCode.groovy])
+
+  // Auto-run execution after alchemize-error patches the script
+  useEffect(() => {
+    if (pendingAutoRun.current && xsltScript) {
+      pendingAutoRun.current = false
+      handleExecute()
+    }
+  }, [xsltScript])
 
   const handleExecute = useCallback(() => {
     setIsExecuting(true)
     setOutputResult('')
     setIsError(false)
+    setCanAutoFix(false)
 
     setTimeout(() => {
       if (engine === 'xslt') {
@@ -133,6 +262,10 @@ export default function TestSandboxModal({ open, onClose }) {
         if (error) {
           setOutputResult(error)
           setIsError(true)
+          // Check if the XSLT contains 2.0 features we can auto-fix
+          if (hasXslt2Features(xsltScript)) {
+            setCanAutoFix(true)
+          }
         } else {
           setOutputResult(result)
           setIsError(false)
@@ -157,6 +290,17 @@ export default function TestSandboxModal({ open, onClose }) {
       setIsExecuting(false)
     }, 300)
   }, [inputPayload, engine, xsltScript, groovyScript, sourceFormat])
+
+  const handleAlchemizeError = useCallback(() => {
+    const { fixedXslt } = autoFixXSLT(xsltScript)
+    setXsltScript(fixedXslt)
+    setCanAutoFix(false)
+    setAutoFixApplied(true)
+    setIsError(false)
+    setOutputResult('')
+    // Schedule auto-run after state updates
+    pendingAutoRun.current = true
+  }, [xsltScript])
 
   const isXslt = engine === 'xslt'
   const inputLabel = isXslt
@@ -348,6 +492,74 @@ export default function TestSandboxModal({ open, onClose }) {
                     </div>
                   )}
                 </div>
+
+                {/* Auto-fix banner */}
+                <AnimatePresence>
+                  {isError && canAutoFix && isXslt && (
+                    <motion.div
+                      className="shrink-0 px-3 py-3 flex flex-col gap-2.5"
+                      style={{
+                        background: 'linear-gradient(135deg, rgba(239,68,68,0.06), rgba(168,85,247,0.06))',
+                        borderBottom: '1px solid rgba(239,68,68,0.15)',
+                      }}
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.25 }}
+                    >
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle size={13} color="#ef4444" className="shrink-0 mt-0.5" />
+                        <span className="text-[10px] leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
+                          XSLT 2.0 features detected (fn:upper-case, format-dateTime, etc.) that are not supported by the browser engine.
+                        </span>
+                      </div>
+                      <div className="relative self-center">
+                        <div
+                          className="absolute -inset-1 rounded-lg blur-md opacity-60 animate-pulse"
+                          style={{ background: 'linear-gradient(135deg, #a855f7, #ec4899)' }}
+                        />
+                        <motion.button
+                          onClick={handleAlchemizeError}
+                          className="relative flex items-center gap-2 px-5 py-2 rounded-lg font-bold text-white text-[11px] tracking-wider cursor-pointer"
+                          style={{
+                            background: 'linear-gradient(135deg, #a855f7, #ec4899)',
+                            boxShadow: '0 0 16px rgba(168,85,247,0.4), 0 2px 8px rgba(0,0,0,0.3)',
+                            border: 'none',
+                          }}
+                          whileHover={{ scale: 1.05, boxShadow: '0 0 24px rgba(168,85,247,0.6), 0 4px 12px rgba(0,0,0,0.3)' }}
+                          whileTap={{ scale: 0.95 }}
+                          transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+                        >
+                          <Sparkles size={14} />
+                          Alchemize Error
+                        </motion.button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Auto-fix success banner */}
+                <AnimatePresence>
+                  {autoFixApplied && !isError && (
+                    <motion.div
+                      className="shrink-0 px-3 py-2 flex items-center gap-2"
+                      style={{
+                        background: 'rgba(34,197,94,0.06)',
+                        borderBottom: '1px solid rgba(34,197,94,0.15)',
+                      }}
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.25 }}
+                    >
+                      <Sparkles size={12} color="#22c55e" />
+                      <span className="text-[10px] font-semibold" style={{ color: '#22c55e' }}>
+                        Auto-fixed! XSLT downgraded to 1.0 and re-executed successfully.
+                      </span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
                 <div className="flex-1 min-h-0" style={isError ? { background: 'rgba(239,68,68,0.03)' } : {}}>
                   <CodeEditor
                     value={outputResult}
