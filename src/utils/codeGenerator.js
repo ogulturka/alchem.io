@@ -108,6 +108,35 @@ function dotToGroovyChain(dotPath) {
   return dotPath.split('.').join('.')
 }
 
+// ── XSLT 1.0 Helpers ──
+
+const LOWER = 'abcdefghijklmnopqrstuvwxyz'
+const UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+
+/**
+ * Build an XSLT 1.0 date-format expression using substring manipulation.
+ * Assumes input date is in yyyy-MM-dd or yyyy-MM-ddTHH:mm:ssZ format.
+ */
+function buildXslt1DateFormat(srcExpr, javaFmt) {
+  // Extract date parts via XSLT 1.0 substring
+  const year = `substring(${srcExpr}, 1, 4)`
+  const month = `substring(${srcExpr}, 6, 2)`
+  const day = `substring(${srcExpr}, 9, 2)`
+
+  switch (javaFmt) {
+    case 'MM/dd/yyyy':
+      return `concat(${month}, '/', ${day}, '/', ${year})`
+    case 'dd.MM.yyyy':
+      return `concat(${day}, '.', ${month}, '.', ${year})`
+    case "yyyy-MM-dd'T'HH:mm:ss'Z'":
+      // If the source already has time, pass through; otherwise append T00:00:00Z
+      return `concat(substring(${srcExpr}, 1, 10), 'T', substring(${srcExpr}, 12, 8), 'Z')`
+    case 'yyyy-MM-dd':
+    default:
+      return `substring(${srcExpr}, 1, 10)`
+  }
+}
+
 // ── XSLT Transform Wrappers ──
 
 function buildXsltSelectExpr(mapping, sourceFormat) {
@@ -125,12 +154,14 @@ function buildXsltSelectExpr(mapping, sourceFormat) {
 
     case 'uppercase': {
       const src = m.sourcePaths[0]
-      return `fn:upper-case(${buildXPathExpr(src, sourceFormat)})`
+      return `translate(${buildXPathExpr(src, sourceFormat)}, '${LOWER}', '${UPPER}')`
     }
 
     case 'formatDate': {
       const src = m.sourcePaths[0]
-      return `format-date(xs:date(${buildXPathExpr(src, sourceFormat)}), '[MNn] [D], [Y]')`
+      const fmt = m.nodeData?.format || 'yyyy-MM-dd'
+      const srcExpr = buildXPathExpr(src, sourceFormat)
+      return buildXslt1DateFormat(srcExpr, fmt)
     }
 
     case 'concat': {
@@ -143,25 +174,16 @@ function buildXsltSelectExpr(mapping, sourceFormat) {
     }
 
     case 'replace': {
+      // XSLT 1.0: replace is handled via named template call-template in renderTargetElement
+      // Return null to signal special handling
       const srcPath = m.inputMap['source'] || m.sourcePaths[0]
-      const searchFor = m.nodeData?.searchFor || ''
-      const replaceWith = m.nodeData?.replaceWith || ''
       if (!srcPath) return "''"
-      const srcExpr = buildXPathExpr(srcPath, sourceFormat)
-      if (searchFor) {
-        return `replace(${srcExpr}, '${searchFor.replace(/'/g, "''")}', '${replaceWith.replace(/'/g, "''")}')`
-      }
-      return srcExpr
+      return buildXPathExpr(srcPath, sourceFormat)
     }
 
     case 'ifelse': {
-      const condPath = m.inputMap['condition'] || m.sourcePaths[0]
-      const truePath = m.inputMap['true'] || m.sourcePaths[1]
-      const falsePath = m.inputMap['false'] || m.sourcePaths[2]
-      const condExpr = condPath ? buildXPathExpr(condPath, sourceFormat) : 'true()'
-      const trueExpr = truePath ? buildXPathExpr(truePath, sourceFormat) : "''"
-      const falseExpr = falsePath ? buildXPathExpr(falsePath, sourceFormat) : "''"
-      return `if (${condExpr}) then ${trueExpr} else ${falseExpr}`
+      // Handled via xsl:choose in renderTargetElement — return placeholder
+      return "''"
     }
 
     case 'math': {
@@ -176,12 +198,12 @@ function buildXsltSelectExpr(mapping, sourceFormat) {
 
     case 'substring': {
       const srcPath = m.inputMap['source'] || m.sourcePaths[0]
-      const startVal = m.nodeData?.substringStart
-      const lenVal = m.nodeData?.substringLength
+      const startVal = m.nodeData?.substringStart ?? 0
+      const lenVal = m.nodeData?.substringLength ?? 5
       const srcExpr = srcPath ? buildXPathExpr(srcPath, sourceFormat) : "''"
       // XSLT substring is 1-based, so add 1 to the 0-based user input
-      const startExpr = startVal !== undefined && startVal !== '' ? `${Number(startVal) + 1}` : '1'
-      const lenExpr = lenVal !== undefined && lenVal !== '' ? lenVal : `string-length(${srcExpr})`
+      const startExpr = `${Number(startVal) + 1}`
+      const lenExpr = `${Number(lenVal)}`
       return `substring(${srcExpr}, ${startExpr}, ${lenExpr})`
     }
 
@@ -207,30 +229,38 @@ export function generateXSLT(nodes, edges, sourceFormat, targetFormat) {
     return '<!-- No mappings defined. Connect source fields to target fields on the canvas. -->'
   }
 
+  // Track whether we need the string-replace named template
+  let needsReplaceTemplate = false
+
   // Build nested target XML tree from mapping paths
   const targetTree = {}
   for (const m of mappings) {
     const parts = m.targetPath.split('.')
     let current = targetTree
     for (let i = 0; i < parts.length - 1; i++) {
-      if (!current[parts[i]]) current[parts[i]] = {}
-      current = current[parts[i]]
+      if (!current[parts[i]]) current[parts[i]] = { __children: {} }
+      if (current[parts[i]].__children) {
+        current = current[parts[i]].__children
+      } else {
+        current = current[parts[i]]
+      }
     }
-    current[parts[parts.length - 1]] = m
+    current[parts[parts.length - 1]] = { __mapping: m }
   }
 
   function renderTargetElement(tree, indent) {
     const lines = []
     for (const [key, value] of Object.entries(tree)) {
-      if (value.targetPath) {
+      if (value.__mapping) {
         // Leaf mapping
-        const selectExpr = buildXsltSelectExpr(value, sourceFormat)
+        const m = value.__mapping
+        const op = m.transforms.length > 0 ? m.transforms[0].operation : null
 
-        // For ifelse, use xsl:choose for cleaner output
-        if (value.transforms.length > 0 && value.transforms[0].operation === 'ifelse') {
-          const condPath = value.inputMap['condition'] || value.sourcePaths[0]
-          const truePath = value.inputMap['true'] || value.sourcePaths[1]
-          const falsePath = value.inputMap['false'] || value.sourcePaths[2]
+        // ifelse → xsl:choose
+        if (op === 'ifelse') {
+          const condPath = m.inputMap['condition'] || m.sourcePaths[0]
+          const truePath = m.inputMap['true'] || m.sourcePaths[1]
+          const falsePath = m.inputMap['false'] || m.sourcePaths[2]
           const condExpr = condPath ? buildXPathExpr(condPath, sourceFormat) : 'true()'
           const trueExpr = truePath ? buildXPathExpr(truePath, sourceFormat) : "''"
           const falseExpr = falsePath ? buildXPathExpr(falsePath, sourceFormat) : "''"
@@ -245,15 +275,35 @@ export function generateXSLT(nodes, edges, sourceFormat, targetFormat) {
           lines.push(`${indent}    </xsl:otherwise>`)
           lines.push(`${indent}  </xsl:choose>`)
           lines.push(`${indent}</${key}>`)
-        } else {
+        }
+        // replace → call-template (XSLT 1.0 has no replace function)
+        else if (op === 'replace') {
+          needsReplaceTemplate = true
+          const srcPath = m.inputMap['source'] || m.sourcePaths[0]
+          const searchFor = m.nodeData?.searchFor || ''
+          const replaceWith = m.nodeData?.replaceWith || ''
+          const srcExpr = srcPath ? buildXPathExpr(srcPath, sourceFormat) : "''"
+
+          lines.push(`${indent}<${key}>`)
+          lines.push(`${indent}  <xsl:call-template name="string-replace">`)
+          lines.push(`${indent}    <xsl:with-param name="text" select="${srcExpr}"/>`)
+          lines.push(`${indent}    <xsl:with-param name="search" select="'${searchFor.replace(/'/g, "''")}'"/>`)
+          lines.push(`${indent}    <xsl:with-param name="replace" select="'${replaceWith.replace(/'/g, "''")}'"/>`)
+          lines.push(`${indent}  </xsl:call-template>`)
+          lines.push(`${indent}</${key}>`)
+        }
+        // All other operations → xsl:value-of
+        else {
+          const selectExpr = buildXsltSelectExpr(m, sourceFormat)
           lines.push(`${indent}<${key}>`)
           lines.push(`${indent}  <xsl:value-of select="${selectExpr}"/>`)
           lines.push(`${indent}</${key}>`)
         }
       } else {
-        // Nested element
+        // Nested element — recurse into children
+        const children = value.__children || value
         lines.push(`${indent}<${key}>`)
-        lines.push(...renderTargetElement(value, indent + '  '))
+        lines.push(...renderTargetElement(children, indent + '  '))
         lines.push(`${indent}</${key}>`)
       }
     }
@@ -269,23 +319,45 @@ export function generateXSLT(nodes, edges, sourceFormat, targetFormat) {
   const sourceFields = mappings.flatMap((m) => m.sourcePaths).filter(Boolean)
   const rootElements = [...new Set(sourceFields.map((p) => p.split('.')[0]))]
 
+  // Build the string-replace named template if needed
+  const replaceTemplate = needsReplaceTemplate ? `
+
+  <!-- XSLT 1.0 string-replace template -->
+  <xsl:template name="string-replace">
+    <xsl:param name="text"/>
+    <xsl:param name="search"/>
+    <xsl:param name="replace"/>
+    <xsl:choose>
+      <xsl:when test="contains($text, $search)">
+        <xsl:value-of select="substring-before($text, $search)"/>
+        <xsl:value-of select="$replace"/>
+        <xsl:call-template name="string-replace">
+          <xsl:with-param name="text" select="substring-after($text, $search)"/>
+          <xsl:with-param name="search" select="$search"/>
+          <xsl:with-param name="replace" select="$replace"/>
+        </xsl:call-template>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:value-of select="$text"/>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:template>` : ''
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Alchem.io — Auto-generated XSLT 2.0
+  Alchem.io — Auto-generated XSLT 1.0 (Browser-compatible)
   Source: ${sourceFormat.toUpperCase()} → Target: ${targetFormat.toUpperCase()}
   Mappings: ${mappings.length} field(s)
   Source root(s): ${rootElements.join(', ') || 'N/A'}
 -->
-<xsl:stylesheet version="2.0"
-    xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
-    xmlns:fn="http://www.w3.org/2005/xpath-functions"
-    xmlns:xs="http://www.w3.org/2001/XMLSchema">
+<xsl:stylesheet version="1.0"
+    xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
 
-  <xsl:output method="${targetFormat === 'xml' ? 'xml' : 'text'}" indent="yes" encoding="UTF-8"/>
+  <xsl:output method="xml" indent="yes" encoding="UTF-8"/>
 
   <xsl:template match="${matchPattern}">
 ${bodyLines.join('\n')}
-  </xsl:template>
+  </xsl:template>${replaceTemplate}
 
 </xsl:stylesheet>`
 }
@@ -330,8 +402,10 @@ function groovyTransformExpr(accessor, operation, nodeData) {
   switch (operation) {
     case 'uppercase':
       return `${accessor}.toString().toUpperCase()`
-    case 'formatDate':
-      return `Date.parse("yyyy-MM-dd", ${accessor}.toString()).format("MMMM dd, yyyy")`
+    case 'formatDate': {
+      const fmt = nodeData?.format || 'yyyy-MM-dd'
+      return `Date.parse("yyyy-MM-dd", ${accessor}.toString()).format("${fmt.replace(/"/g, '\\"')}")`
+    }
     case 'constant':
       return `"${(nodeData?.constantValue || '').replace(/"/g, '\\"')}"`
     default:
@@ -452,6 +526,15 @@ export function generateGroovy(nodes, edges, sourceFormat, targetFormat, platfor
         const trueAccessor = truePath ? buildGroovyAccessor(truePath, sourceFormat) : '""'
         const falseAccessor = falsePath ? buildGroovyAccessor(falsePath, sourceFormat) : '""'
         lines.push(`    def ${varName} = ${condAccessor} ? ${trueAccessor} : ${falseAccessor}`)
+      } else if (op === 'formatDate') {
+        const srcPath = m.inputMap?.['input'] || m.sourcePaths[0]
+        const fmt = m.nodeData?.format || 'yyyy-MM-dd'
+        if (srcPath) {
+          const accessor = buildGroovyAccessor(srcPath, sourceFormat)
+          lines.push(`    def ${varName} = Date.parse("yyyy-MM-dd", ${accessor}.toString()).format("${fmt.replace(/"/g, '\\"')}")`)
+        } else {
+          lines.push(`    def ${varName} = ""  // formatDate: missing input`)
+        }
       } else if (op === 'math') {
         const pathA = m.inputMap?.['a'] || m.sourcePaths[0]
         const pathB = m.inputMap?.['b'] || m.sourcePaths[1]
@@ -461,12 +544,10 @@ export function generateGroovy(nodes, edges, sourceFormat, targetFormat, platfor
         lines.push(`    def ${varName} = ${accA} ${mathOp} ${accB}`)
       } else if (op === 'substring') {
         const srcPath = m.inputMap?.['source'] || m.sourcePaths[0]
-        const startVal = m.nodeData?.substringStart
-        const lenVal = m.nodeData?.substringLength
+        const startVal = m.nodeData?.substringStart ?? 0
+        const lenVal = m.nodeData?.substringLength ?? 5
         const srcAcc = srcPath ? `${buildGroovyAccessor(srcPath, sourceFormat)}.toString()` : '""'
-        const startExpr = startVal !== undefined && startVal !== '' ? startVal : '0'
-        const lenExpr = lenVal !== undefined && lenVal !== '' ? lenVal : `${srcAcc}.length()`
-        lines.push(`    def ${varName} = ${srcAcc}.substring(${startExpr}, Math.min(${startExpr} + ${lenExpr}, ${srcAcc}.length()))`)
+        lines.push(`    def ${varName} = ${srcAcc}.substring(${Number(startVal)}, Math.min(${Number(startVal)} + ${Number(lenVal)}, ${srcAcc}.length()))`)
       } else if (op === 'equals') {
         const pathA = m.inputMap?.['valueA'] || m.sourcePaths[0]
         const pathB = m.inputMap?.['valueB'] || m.sourcePaths[1]

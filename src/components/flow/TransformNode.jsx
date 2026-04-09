@@ -64,6 +64,7 @@ export const operationConfig = {
     inputs: ['input'],
     outputs: ['result'],
     description: 'Format date string',
+    hasFormatSelect: true,
   },
   math: {
     label: 'Math',
@@ -277,8 +278,8 @@ export default function TransformNode({ id, data }) {
               <input
                 type="number"
                 placeholder="0"
-                value={data.substringStart ?? ''}
-                onChange={(e) => updateNodeData(id, { substringStart: e.target.value })}
+                value={data.substringStart ?? 0}
+                onChange={(e) => updateNodeData(id, { substringStart: Number(e.target.value) })}
                 className="nodrag w-full text-[11px] font-mono px-3 py-2 rounded-lg border outline-none focus:ring-1"
                 style={{
                   backgroundColor: 'var(--color-bg-primary)',
@@ -294,8 +295,8 @@ export default function TransformNode({ id, data }) {
               <input
                 type="number"
                 placeholder="5"
-                value={data.substringLength ?? ''}
-                onChange={(e) => updateNodeData(id, { substringLength: e.target.value })}
+                value={data.substringLength ?? 5}
+                onChange={(e) => updateNodeData(id, { substringLength: Number(e.target.value) })}
                 className="nodrag w-full text-[11px] font-mono px-3 py-2 rounded-lg border outline-none focus:ring-1"
                 style={{
                   backgroundColor: 'var(--color-bg-primary)',
@@ -304,6 +305,35 @@ export default function TransformNode({ id, data }) {
                 }}
               />
             </div>
+          </div>
+        )}
+
+        {/* FormatDate: format select */}
+        {config.hasFormatSelect && (
+          <div className="px-4 py-2">
+            <label className="text-[9px] font-mono uppercase tracking-wider block mb-1.5" style={{ color: cat.glow }}>
+              Format
+            </label>
+            <select
+              value={data.format || 'yyyy-MM-dd'}
+              onChange={(e) => updateNodeData(id, { format: e.target.value })}
+              className="nodrag w-full text-[11px] font-mono px-3 py-2 rounded-lg border outline-none cursor-pointer"
+              style={{
+                backgroundColor: 'var(--color-bg-primary)',
+                borderColor: cat.color,
+                color: 'var(--color-text-primary)',
+                appearance: 'none',
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: 'right 6px center',
+                paddingRight: '24px',
+              }}
+            >
+              <option value="MM/dd/yyyy">MM/dd/yyyy</option>
+              <option value="yyyy-MM-dd">yyyy-MM-dd</option>
+              <option value="dd.MM.yyyy">dd.MM.yyyy</option>
+              <option value="yyyy-MM-dd'T'HH:mm:ss'Z'">yyyy-MM-dd'T'HH:mm:ss'Z'</option>
+            </select>
           </div>
         )}
 

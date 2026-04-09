@@ -1,7 +1,8 @@
 import { useState, useCallback } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Code2, Copy, Check } from 'lucide-react'
+import { Code2, Copy, Check, FlaskConical } from 'lucide-react'
 import AlchemizeButton from '../ui/AlchemizeButton'
+import TestSandboxModal from '../ui/TestSandboxModal'
 import CodeEditor from '../editors/CodeEditor'
 import useAppStore from '../../store/useAppStore'
 
@@ -75,6 +76,7 @@ export default function RightPanel() {
   const groovyPlatform = useAppStore((s) => s.groovyPlatform)
   const setGroovyPlatform = useAppStore((s) => s.setGroovyPlatform)
   const isGenerating = useAppStore((s) => s.isGenerating)
+  const [sandboxOpen, setSandboxOpen] = useState(false)
 
   const code = generatedCode[activeOutputTab]
   const language = activeOutputTab === 'xslt' ? 'xml' : 'javascript'
@@ -101,6 +103,27 @@ export default function RightPanel() {
 
         {/* Layer 1: Alchemize Button */}
         <AlchemizeButton />
+
+        {/* Layer 1.5: Test Sandbox Button */}
+        <motion.button
+          onClick={() => setSandboxOpen(true)}
+          className="w-full py-3 px-5 rounded-xl font-semibold text-[12px] tracking-wider cursor-pointer flex items-center justify-center gap-2"
+          style={{
+            backgroundColor: 'var(--color-bg-tertiary)',
+            border: '1px solid var(--color-border)',
+            color: 'var(--color-text-primary)',
+            transition: 'border-color 0.2s, box-shadow 0.2s',
+          }}
+          whileHover={{
+            scale: 1.02,
+            borderColor: 'var(--color-accent)',
+            boxShadow: '0 0 16px var(--color-accent-glow)',
+          }}
+          whileTap={{ scale: 0.97 }}
+        >
+          <FlaskConical size={15} style={{ color: 'var(--color-accent)' }} />
+          Run Test Sandbox
+        </motion.button>
 
         {/* Layer 2: Platform Selector (always visible, applies to Groovy output) */}
         <div className="flex flex-col gap-2">
@@ -228,6 +251,8 @@ export default function RightPanel() {
           )}
         </AnimatePresence>
       </div>
+
+      <TestSandboxModal open={sandboxOpen} onClose={() => setSandboxOpen(false)} />
     </div>
   )
 }

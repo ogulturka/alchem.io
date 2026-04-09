@@ -258,7 +258,13 @@ const useAppStore = create((set, get) => ({
     set({ edges: addEdge({ ...connection, type: 'smoothstep', animated: true, markerEnd: ARROW_MARKER }, get().edges) }),
   addTransformNode: (operation, position) => {
     const id = `transform-${operation}-${transformIdCounter++}`
-    set({ nodes: [...get().nodes, { id, type: 'transform', position, data: { operation } }] })
+    const defaults = {
+      substring: { substringStart: 0, substringLength: 5 },
+      formatDate: { format: 'yyyy-MM-dd' },
+      math: { mathOperator: '+' },
+    }
+    const data = { operation, ...(defaults[operation] || {}) }
+    set({ nodes: [...get().nodes, { id, type: 'transform', position, data }] })
   },
   updateNodeData: (nodeId, dataUpdate) => {
     set({
