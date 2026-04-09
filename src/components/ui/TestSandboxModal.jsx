@@ -151,6 +151,24 @@ function autoFixXSLT(rawXslt) {
     }
   )
 
+  // 9. Ensure output method is "xml" (text method can cause null result in browsers)
+  if (/method\s*=\s*"text"/.test(xslt)) {
+    xslt = xslt.replace(/method\s*=\s*"text"/, 'method="xml"')
+    fixes.push('Changed output method="text" to method="xml"')
+  }
+
+  // 10. Remove exclude-result-prefixes (can cause issues in some browsers)
+  if (/exclude-result-prefixes\s*=\s*"[^"]*"/.test(xslt)) {
+    xslt = xslt.replace(/\s*exclude-result-prefixes\s*=\s*"[^"]*"/g, '')
+    fixes.push('Removed exclude-result-prefixes')
+  }
+
+  // 11. Ensure version="1.0" exists if no version at all
+  if (!(/version\s*=\s*"/.test(xslt)) && /<xsl:stylesheet/.test(xslt)) {
+    xslt = xslt.replace(/<xsl:stylesheet/, '<xsl:stylesheet version="1.0"')
+    fixes.push('Added missing version="1.0"')
+  }
+
   return { fixedXslt: xslt, fixes }
 }
 
@@ -262,10 +280,9 @@ export default function TestSandboxModal({ open, onClose }) {
         if (error) {
           setOutputResult(error)
           setIsError(true)
-          // Check if the XSLT contains 2.0 features we can auto-fix
-          if (hasXslt2Features(xsltScript)) {
-            setCanAutoFix(true)
-          }
+          // Always show auto-fix on XSLT errors — it handles 2.0 features,
+          // namespace cleanup, and other common browser-incompatible patterns
+          setCanAutoFix(true)
         } else {
           setOutputResult(result)
           setIsError(false)
@@ -510,7 +527,7 @@ export default function TestSandboxModal({ open, onClose }) {
                       <div className="flex items-start gap-2">
                         <AlertTriangle size={13} color="#ef4444" className="shrink-0 mt-0.5" />
                         <span className="text-[10px] leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
-                          XSLT 2.0 features detected (fn:upper-case, format-dateTime, etc.) that are not supported by the browser engine.
+                          Transformation failed. Click below to auto-fix browser-incompatible XSLT (2.0 functions, namespaces, etc.) and re-execute.
                         </span>
                       </div>
                       <div className="relative self-center">
