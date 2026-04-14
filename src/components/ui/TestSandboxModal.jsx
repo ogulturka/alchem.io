@@ -362,6 +362,8 @@ export default function TestSandboxModal({ open, onClose }) {
   const sourceFormat = useAppStore((s) => s.sourceFormat)
   const targetFormat = useAppStore((s) => s.targetFormat)
   const responseStructure = useAppStore((s) => s.responseStructure)
+  const isSourceSoap = useAppStore((s) => s.isSourceSoap)
+  const isTargetSoap = useAppStore((s) => s.isTargetSoap)
 
   const [engine, setEngine] = useState('xslt') // 'xslt' | 'groovy'
   const [inputPayload, setInputPayload] = useState(requestCode)
@@ -442,7 +444,7 @@ export default function TestSandboxModal({ open, onClose }) {
           setIsExecuting(false)
           return
         }
-        const { result, error } = executeGroovyMock(inputPayload, groovyScript, sourceFormat)
+        const { result, error } = executeGroovyMock(inputPayload, groovyScript, sourceFormat, { isSourceSoap, isTargetSoap })
         if (error) {
           setOutputResult(error)
           setIsError(true)
@@ -498,9 +500,10 @@ export default function TestSandboxModal({ open, onClose }) {
     useAppStore.setState({ nodes: updatedNodes, edges: updatedEdges })
 
     // Regenerate code with new graph
-    const { sourceFormat: sf, targetFormat: tf, groovyPlatform: gp } = storeState
-    const xslt = generateXSLT(updatedNodes, updatedEdges, sf, tf)
-    const groovy = generateGroovy(updatedNodes, updatedEdges, sf, tf, gp)
+    const { sourceFormat: sf, targetFormat: tf, groovyPlatform: gp, isSourceSoap: sSoap, isTargetSoap: tSoap } = storeState
+    const soapFlags = { isSourceSoap: sSoap, isTargetSoap: tSoap }
+    const xslt = generateXSLT(updatedNodes, updatedEdges, sf, tf, soapFlags)
+    const groovy = generateGroovy(updatedNodes, updatedEdges, sf, tf, gp, soapFlags)
     useAppStore.setState({ generatedCode: { xslt, groovy } })
 
     // Update sandbox editors

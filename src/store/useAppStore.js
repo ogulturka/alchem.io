@@ -330,6 +330,12 @@ const useAppStore = create((set, get) => ({
   activeOutputTab: 'xslt',
   setActiveOutputTab: (activeOutputTab) => set({ activeOutputTab }),
 
+  // ── SOAP Envelope Toggles ──
+  isSourceSoap: false,
+  isTargetSoap: false,
+  setSourceSoap: (val) => set({ isSourceSoap: val }),
+  setTargetSoap: (val) => set({ isTargetSoap: val }),
+
   // ── Groovy Platform ──
   groovyPlatform: 'sap-cpi', // 'sap-cpi' | 'sap-po' | 'apache-camel'
   setGroovyPlatform: (groovyPlatform) => set({ groovyPlatform }),
@@ -337,9 +343,10 @@ const useAppStore = create((set, get) => ({
   alchemize: () => {
     set({ isGenerating: true })
     setTimeout(() => {
-      const { nodes, edges, sourceFormat, targetFormat, groovyPlatform } = get()
-      const xslt = generateXSLT(nodes, edges, sourceFormat, targetFormat)
-      const groovy = generateGroovy(nodes, edges, sourceFormat, targetFormat, groovyPlatform)
+      const { nodes, edges, sourceFormat, targetFormat, groovyPlatform, isSourceSoap, isTargetSoap } = get()
+      const soapFlags = { isSourceSoap, isTargetSoap }
+      const xslt = generateXSLT(nodes, edges, sourceFormat, targetFormat, soapFlags)
+      const groovy = generateGroovy(nodes, edges, sourceFormat, targetFormat, groovyPlatform, soapFlags)
       set({
         isGenerating: false,
         generatedCode: { xslt, groovy },

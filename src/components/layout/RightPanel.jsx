@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Code2, Copy, Check, FlaskConical } from 'lucide-react'
+import { Code2, Copy, Check, FlaskConical, PanelRightClose } from 'lucide-react'
 import AlchemizeButton from '../ui/AlchemizeButton'
 import TestSandboxModal from '../ui/TestSandboxModal'
 import CodeEditor from '../editors/CodeEditor'
@@ -69,7 +69,7 @@ function CopyOverlay({ code }) {
   )
 }
 
-export default function RightPanel() {
+export default function RightPanel({ onCollapse }) {
   const generatedCode = useAppStore((s) => s.generatedCode)
   const activeOutputTab = useAppStore((s) => s.activeOutputTab)
   const setActiveOutputTab = useAppStore((s) => s.setActiveOutputTab)
@@ -96,6 +96,23 @@ export default function RightPanel() {
         >
           Code Output
         </span>
+        {onCollapse && (
+          <button
+            onClick={onCollapse}
+            className="ml-auto flex items-center justify-center rounded-md cursor-pointer border-none transition-colors"
+            style={{
+              width: 26,
+              height: 26,
+              backgroundColor: 'transparent',
+              color: 'var(--color-text-secondary)',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--color-accent)'; e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.06)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--color-text-secondary)'; e.currentTarget.style.backgroundColor = 'transparent' }}
+            title="Collapse right panel"
+          >
+            <PanelRightClose size={15} />
+          </button>
+        )}
       </div>
 
       {/* ── Controls Stack ── */}

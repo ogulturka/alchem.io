@@ -162,6 +162,45 @@ function TreeRow({ item, depth, parentPath, handleType, handlePosition, searchQu
   )
 }
 
+function SoapToggle({ checked, onChange, label }) {
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onChange(!checked) }}
+      className="nodrag flex items-center gap-1.5 px-2 py-1 rounded-md cursor-pointer border-none transition-all"
+      style={{
+        backgroundColor: checked ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.04)',
+        border: `1px solid ${checked ? 'rgba(139,92,246,0.4)' : 'transparent'}`,
+      }}
+      title={label}
+    >
+      <div
+        className="relative rounded-full transition-all"
+        style={{
+          width: 24,
+          height: 14,
+          backgroundColor: checked ? '#8b5cf6' : 'rgba(255,255,255,0.15)',
+        }}
+      >
+        <div
+          className="absolute top-0.5 rounded-full transition-all"
+          style={{
+            width: 10,
+            height: 10,
+            backgroundColor: '#fff',
+            left: checked ? 12 : 2,
+          }}
+        />
+      </div>
+      <span
+        className="text-[8px] font-bold uppercase tracking-wider"
+        style={{ color: checked ? '#a78bfa' : 'var(--color-text-secondary)' }}
+      >
+        SOAP
+      </span>
+    </button>
+  )
+}
+
 export default function PayloadTreeNode({ id, data }) {
   const { label, tree, handleType, handlePosition, icon } = data
   const Icon = icon === 'database' ? Database : FolderOpen
@@ -169,6 +208,12 @@ export default function PayloadTreeNode({ id, data }) {
   const [searchQuery, setSearchQuery] = useState('')
   const updateNodeInternals = useUpdateNodeInternals()
   const updateFieldType = useAppStore((s) => s.updateFieldType)
+
+  const isSource = id === 'source-payload'
+  const isSourceSoap = useAppStore((s) => s.isSourceSoap)
+  const isTargetSoap = useAppStore((s) => s.isTargetSoap)
+  const setSourceSoap = useAppStore((s) => s.setSourceSoap)
+  const setTargetSoap = useAppStore((s) => s.setTargetSoap)
 
   const handleTypeChange = useCallback((fieldPath, newType) => {
     updateFieldType(id, fieldPath, newType)
@@ -225,6 +270,11 @@ export default function PayloadTreeNode({ id, data }) {
           >
             {label}
           </span>
+          <SoapToggle
+            checked={isSource ? isSourceSoap : isTargetSoap}
+            onChange={isSource ? setSourceSoap : setTargetSoap}
+            label={isSource ? 'Strip SOAP Envelope from source' : 'Wrap output in SOAP Envelope'}
+          />
           <span
             className="text-[9px] font-mono ml-auto px-2 py-1 rounded-md"
             style={{

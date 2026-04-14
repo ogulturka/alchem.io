@@ -305,12 +305,24 @@ function objectToXml(obj, indent = '') {
 
 // ── Main Entry Point ──
 
-export function executeGroovyMock(inputPayload, groovyScript, sourceFormat) {
+export function executeGroovyMock(inputPayload, groovyScript, sourceFormat, soapFlags = {}) {
+  const { isSourceSoap = false, isTargetSoap = false } = soapFlags
+
   // 1. Parse the input payload
   let src
   try {
     if (sourceFormat === 'xml') {
       src = xmlToJsObject(inputPayload)
+      // If SOAP mode, unwrap: navigate into Body's first child
+      if (isSourceSoap && src) {
+        const body = src['Body'] || src['soapenv:Body'] || src['soap:Body'] || src['SOAP-ENV:Body']
+        if (body && typeof body === 'object') {
+          const bodyKeys = Object.keys(body)
+          if (bodyKeys.length > 0) {
+            src = body[bodyKeys[0]]
+          }
+        }
+      }
     } else {
       src = JSON.parse(inputPayload)
     }
@@ -385,7 +397,17 @@ export function executeGroovyMock(inputPayload, groovyScript, sourceFormat) {
     if (outputFormat === 'json') {
       return { result: JSON.stringify(outputObj, null, 2) }
     } else {
-      const xmlStr = '<?xml version="1.0" encoding="UTF-8"?>\n' + objectToXml(outputObj)
+      let xmlStr = '<?xml version="1.0" encoding="UTF-8"?>\n'
+      if (isTargetSoap) {
+        xmlStr += '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">\n'
+        xmlStr += '  <soapenv:Header/>\n'
+        xmlStr += '  <soapenv:Body>\n'
+        xmlStr += objectToXml(outputObj, '    ')
+        xmlStr += '  </soapenv:Body>\n'
+        xmlStr += '</soapenv:Envelope>'
+      } else {
+        xmlStr += objectToXml(outputObj)
+      }
       return { result: xmlStr }
     }
   } catch (err) {

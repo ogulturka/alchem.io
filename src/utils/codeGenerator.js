@@ -238,7 +238,8 @@ function buildXsltSelectExpr(mapping, sourceFormat) {
 
 // ── XSLT Generator ──
 
-export function generateXSLT(nodes, edges, sourceFormat, targetFormat) {
+export function generateXSLT(nodes, edges, sourceFormat, targetFormat, soapFlags = {}) {
+  const { isSourceSoap = false, isTargetSoap = false } = soapFlags
   const mappings = buildMappings(nodes, edges)
 
   if (mappings.length === 0) {
@@ -338,8 +339,13 @@ export function generateXSLT(nodes, edges, sourceFormat, targetFormat) {
     bodyLines = renderTargetElement(targetTree, '      ')
   }
 
-  // Determine root match pattern based on source format
-  const matchPattern = sourceFormat === 'xml' ? '/*' : '/'
+  // Determine root match pattern based on source format and SOAP
+  let matchPattern
+  if (isSourceSoap && sourceFormat === 'xml') {
+    matchPattern = '/soapenv:Envelope/soapenv:Body/*'
+  } else {
+    matchPattern = sourceFormat === 'xml' ? '/*' : '/'
+  }
 
   // Compute source root element name for documentation
   const sourceFields = mappings.flatMap((m) => m.sourcePaths).filter(Boolean)
@@ -369,20 +375,40 @@ export function generateXSLT(nodes, edges, sourceFormat, targetFormat) {
     </xsl:choose>
   </xsl:template>` : ''
 
+  // SOAP namespace declaration
+  const soapNsAttr = (isSourceSoap || isTargetSoap)
+    ? '\n    xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"'
+    : ''
+
+  // Wrap body in SOAP envelope if target needs it
+  let finalBodyLines
+  if (isTargetSoap) {
+    finalBodyLines = [
+      '      <soapenv:Envelope>',
+      '        <soapenv:Header/>',
+      '        <soapenv:Body>',
+      ...bodyLines.map((l) => '    ' + l),
+      '        </soapenv:Body>',
+      '      </soapenv:Envelope>',
+    ]
+  } else {
+    finalBodyLines = bodyLines
+  }
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!--
   Alchem.io — Auto-generated XSLT 1.0 (Browser-compatible)
-  Source: ${sourceFormat.toUpperCase()} → Target: ${targetFormat.toUpperCase()}
+  Source: ${sourceFormat.toUpperCase()}${isSourceSoap ? ' (SOAP)' : ''} → Target: ${targetFormat.toUpperCase()}${isTargetSoap ? ' (SOAP)' : ''}
   Mappings: ${mappings.length} field(s)
   Source root(s): ${rootElements.join(', ') || 'N/A'}
 -->
 <xsl:stylesheet version="1.0"
-    xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+    xmlns:xsl="http://www.w3.org/1999/XSL/Transform"${soapNsAttr}>
 
   <xsl:output method="xml" indent="yes" encoding="UTF-8"/>
 
   <xsl:template match="${matchPattern}">
-${bodyLines.join('\n')}
+${finalBodyLines.join('\n')}
   </xsl:template>${replaceTemplate}
 
 </xsl:stylesheet>`
@@ -449,7 +475,8 @@ function buildGroovyAccessor(dotPath, sourceFormat, sourceRootTag) {
   return `src.${chain}`
 }
 
-export function generateGroovy(nodes, edges, sourceFormat, targetFormat, platform = 'sap-cpi') {
+export function generateGroovy(nodes, edges, sourceFormat, targetFormat, platform = 'sap-cpi', soapFlags = {}) {
+  const { isSourceSoap = false, isTargetSoap = false } = soapFlags
   const mappings = buildMappings(nodes, edges)
 
   if (mappings.length === 0) {
@@ -507,7 +534,13 @@ export function generateGroovy(nodes, edges, sourceFormat, targetFormat, platfor
     lines.push('    def src = new JsonSlurper().parseText(body)')
   } else {
     lines.push('    // Parse source XML')
-    lines.push('    def src = new XmlSlurper().parseText(body)')
+    lines.push('    def srcRaw = new XmlSlurper().parseText(body)')
+    if (isSourceSoap) {
+      lines.push('    // Unwrap SOAP Envelope — navigate into Body\'s first child')
+      lines.push("    def src = srcRaw.Body.children()[0]")
+    } else {
+      lines.push('    def src = srcRaw')
+    }
   }
   lines.push('')
 
@@ -682,9 +715,18 @@ export function generateGroovy(nodes, edges, sourceFormat, targetFormat, platfor
       }
     }
 
-    lines.push('    xml {')
-    renderMarkupBuilder(targetTree, '        ')
-    lines.push('    }')
+    if (isTargetSoap) {
+      lines.push("    xml.'soapenv:Envelope'('xmlns:soapenv': 'http://schemas.xmlsoap.org/soap/envelope/') {")
+      lines.push("        'soapenv:Header'()")
+      lines.push("        'soapenv:Body' {")
+      renderMarkupBuilder(targetTree, '            ')
+      lines.push('        }')
+      lines.push('    }')
+    } else {
+      lines.push('    xml {')
+      renderMarkupBuilder(targetTree, '        ')
+      lines.push('    }')
+    }
     lines.push('')
     const setBodyLines = config.setBody(contentType)
     setBodyLines.forEach((l) => lines.push(l.replace('%OUTPUT%', 'writer.toString()')))
