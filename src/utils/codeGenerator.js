@@ -135,15 +135,22 @@ function buildMappings(nodes, edges) {
 
 // ── Path Helpers ──
 
-/** Convert dot-path to proper XPath (e.g. "Body.Customer.name" → "Body/Customer/name") */
+/**
+ * Convert dot-path to namespace-agnostic XPath using local-name().
+ * e.g. "Body.Customer.name" → "*[local-name()='Body']/*[local-name()='Customer']/*[local-name()='name']"
+ * Strips any prefix (e.g. "diffgr:diffgram" → "diffgram") so it matches
+ * regardless of how xmlns is declared in the source XML.
+ */
 function dotToXPath(dotPath) {
-  return dotPath.replace(/\./g, '/')
+  return dotPath.split('.').map((seg) => {
+    const localName = seg.includes(':') ? seg.split(':').pop() : seg
+    return `*[local-name()='${localName}']`
+  }).join('/')
 }
 
 /** Build a contextual XPath select expression for a source field */
 function buildXPathExpr(dotPath, sourceFormat) {
   if (sourceFormat === 'xml') {
-    // Full XPath from root element: PayloadRequest/Header/MessageId
     return dotToXPath(dotPath)
   }
   // JSON: use json-to-xml or simple path reference
