@@ -144,11 +144,49 @@ export function jsonToXml(jsonString) {
 }
 
 /**
+ * Check if text is already valid in the given format.
+ */
+function isValidFormat(text, format) {
+  const trimmed = text.trim()
+  if (!trimmed) return false
+
+  if (format === 'xml') {
+    if (!trimmed.startsWith('<')) return false
+    try {
+      const doc = new DOMParser().parseFromString(trimmed, 'application/xml')
+      return !doc.querySelector('parsererror')
+    } catch {
+      return false
+    }
+  }
+
+  if (format === 'json') {
+    try {
+      const parsed = JSON.parse(trimmed)
+      return typeof parsed === 'object' && parsed !== null
+    } catch {
+      return false
+    }
+  }
+
+  return false
+}
+
+/**
  * Convert payload text between formats.
  * Returns { text, error } — error is null on success.
+ *
+ * Smart pre-check: if the content is already valid in the target format,
+ * skip conversion and just pass it through (e.g. XML pasted while in JSON mode,
+ * then user switches dropdown to XML).
  */
 export function convertPayload(text, fromFormat, toFormat) {
   if (fromFormat === toFormat) return { text, error: null }
+
+  // Pre-check: if content is already valid in the target format, skip conversion
+  if (isValidFormat(text, toFormat)) {
+    return { text, error: null }
+  }
 
   try {
     if (fromFormat === 'xml' && toFormat === 'json') {
