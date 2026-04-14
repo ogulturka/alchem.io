@@ -55,7 +55,14 @@ function jsonToTree(obj) {
 export function parseJSON(text) {
   try {
     const parsed = JSON.parse(text)
-    return { tree: jsonToTree(parsed), error: null }
+    const tree = jsonToTree(parsed)
+    // Infer root tag from single top-level key
+    let rootTag = null
+    if (!Array.isArray(parsed) && typeof parsed === 'object' && parsed !== null) {
+      const keys = Object.keys(parsed)
+      if (keys.length === 1) rootTag = keys[0]
+    }
+    return { tree, error: null, rootTag }
   } catch (e) {
     return { tree: [], error: e.message }
   }

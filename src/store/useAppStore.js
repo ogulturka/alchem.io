@@ -167,6 +167,23 @@ const initialEdges = [
 
 let transformIdCounter = 2
 
+/** Collect all leaf field handle IDs from a schema tree */
+function collectHandleIds(tree, parentPath) {
+  const ids = new Set()
+  for (const item of tree) {
+    const name = item.field || item.label || ''
+    const path = parentPath ? `${parentPath}.${name}` : name
+    if (item.children && item.children.length > 0) {
+      for (const id of collectHandleIds(item.children, path)) {
+        ids.add(id)
+      }
+    } else {
+      ids.add(path)
+    }
+  }
+  return ids
+}
+
 const useAppStore = create((set, get) => ({
   // ── Theme ──
   theme: 'carbon',
@@ -215,29 +232,43 @@ const useAppStore = create((set, get) => ({
   parseError: { source: null, target: null },
 
   syncSourceTree: () => {
-    const { requestCode, sourceFormat, nodes } = get()
+    const { requestCode, sourceFormat, nodes, edges } = get()
     const result = parsePayload(requestCode, sourceFormat)
     const updated = nodes.map((n) =>
       n.id === 'source-payload'
-        ? { ...n, data: { ...n.data, tree: result.tree } }
+        ? { ...n, data: { ...n.data, tree: result.tree, rootTag: result.rootTag || null } }
         : n
     )
+    // Purge stale edges referencing handles that no longer exist
+    const validHandles = collectHandleIds(result.tree, '')
+    const cleanEdges = edges.filter((e) => {
+      if (e.source === 'source-payload' && !validHandles.has(e.sourceHandle)) return false
+      return true
+    })
     set({
       nodes: updated,
+      edges: cleanEdges,
       parseError: { ...get().parseError, source: result.error },
     })
   },
 
   syncTargetTree: () => {
-    const { responseStructure, targetFormat, nodes } = get()
+    const { responseStructure, targetFormat, nodes, edges } = get()
     const result = parsePayload(responseStructure, targetFormat)
     const updated = nodes.map((n) =>
       n.id === 'target-payload'
-        ? { ...n, data: { ...n.data, tree: result.tree } }
+        ? { ...n, data: { ...n.data, tree: result.tree, rootTag: result.rootTag || null } }
         : n
     )
+    // Purge stale edges referencing handles that no longer exist
+    const validHandles = collectHandleIds(result.tree, '')
+    const cleanEdges = edges.filter((e) => {
+      if (e.target === 'target-payload' && !validHandles.has(e.targetHandle)) return false
+      return true
+    })
     set({
       nodes: updated,
+      edges: cleanEdges,
       parseError: { ...get().parseError, target: result.error },
     })
   },
@@ -343,9 +374,9 @@ const useAppStore = create((set, get) => ({
   alchemize: () => {
     set({ isGenerating: true })
     setTimeout(() => {
-      const { nodes, edges, sourceFormat, targetFormat, groovyPlatform, isSourceSoap, isTargetSoap } = get()
+      const { nodes, edges, sourceFormat, targetFormat, groovyPlatform, isSourceSoap, isTargetSoap, requestCode } = get()
       const soapFlags = { isSourceSoap, isTargetSoap }
-      const xslt = generateXSLT(nodes, edges, sourceFormat, targetFormat, soapFlags)
+      const xslt = generateXSLT(nodes, edges, sourceFormat, targetFormat, soapFlags, requestCode)
       const groovy = generateGroovy(nodes, edges, sourceFormat, targetFormat, groovyPlatform, soapFlags)
       set({
         isGenerating: false,

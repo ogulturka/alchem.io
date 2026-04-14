@@ -374,7 +374,7 @@ export function executeGroovyMock(inputPayload, groovyScript, sourceFormat, soap
         continue
       }
 
-      // Detect output builder start: output {  or  xml {
+      // Detect output builder start: output {  or  xml {  or  xml.RootTag {
       if (line === 'output {') {
         outputFormat = 'json'
         const { obj } = parseJsonBuilderBlock(lines, i + 1, variables)
@@ -385,6 +385,15 @@ export function executeGroovyMock(inputPayload, groovyScript, sourceFormat, soap
         outputFormat = 'xml'
         const { obj } = parseMarkupBuilderBlock(lines, i + 1, variables)
         outputObj = obj
+        break
+      }
+      // xml.RootTagName { — named root element
+      const xmlRootMatch = line.match(/^xml\.(\w+)\s*\{$/)
+      if (xmlRootMatch) {
+        outputFormat = 'xml'
+        const rootTag = xmlRootMatch[1]
+        const { obj } = parseMarkupBuilderBlock(lines, i + 1, variables)
+        outputObj = { [rootTag]: obj }
         break
       }
     }

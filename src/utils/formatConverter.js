@@ -64,7 +64,7 @@ function escapeXml(str) {
 }
 
 function isValidXmlTag(name) {
-  return /^[a-zA-Z_][\w.-]*$/.test(name)
+  return /^[a-zA-Z_][\w.:-]*$/.test(name)
 }
 
 function objToXmlLines(obj, indent) {

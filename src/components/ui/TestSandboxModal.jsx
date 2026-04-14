@@ -500,9 +500,9 @@ export default function TestSandboxModal({ open, onClose }) {
     useAppStore.setState({ nodes: updatedNodes, edges: updatedEdges })
 
     // Regenerate code with new graph
-    const { sourceFormat: sf, targetFormat: tf, groovyPlatform: gp, isSourceSoap: sSoap, isTargetSoap: tSoap } = storeState
+    const { sourceFormat: sf, targetFormat: tf, groovyPlatform: gp, isSourceSoap: sSoap, isTargetSoap: tSoap, requestCode: srcXml } = storeState
     const soapFlags = { isSourceSoap: sSoap, isTargetSoap: tSoap }
-    const xslt = generateXSLT(updatedNodes, updatedEdges, sf, tf, soapFlags)
+    const xslt = generateXSLT(updatedNodes, updatedEdges, sf, tf, soapFlags, srcXml)
     const groovy = generateGroovy(updatedNodes, updatedEdges, sf, tf, gp, soapFlags)
     useAppStore.setState({ generatedCode: { xslt, groovy } })
 

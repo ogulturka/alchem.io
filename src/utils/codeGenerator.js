@@ -12,6 +12,42 @@
  *  - edges connect source handles → transform inputs → transform outputs → target handles
  */
 
+// ── Namespace Extraction ──
+
+/**
+ * Extract all namespace declarations from an XML string.
+ * Returns a Map of prefix → URI (e.g. "ns1" → "http://myapi.com").
+ * The default namespace (xmlns="...") is stored under key "".
+ */
+function extractNamespacesFromXML(xmlString) {
+  const namespaces = new Map()
+  if (!xmlString || !xmlString.trim().startsWith('<')) return namespaces
+
+  try {
+    const doc = new DOMParser().parseFromString(xmlString, 'application/xml')
+    if (doc.querySelector('parsererror')) return namespaces
+
+    // Walk elements to collect all xmlns declarations
+    function collectNs(el) {
+      for (const attr of el.attributes) {
+        if (attr.name === 'xmlns') {
+          namespaces.set('', attr.value)
+        } else if (attr.name.startsWith('xmlns:')) {
+          const prefix = attr.name.slice(6)
+          namespaces.set(prefix, attr.value)
+        }
+      }
+      for (const child of el.children) {
+        collectNs(child)
+      }
+    }
+    collectNs(doc.documentElement)
+  } catch {
+    // Silently ignore parse errors
+  }
+  return namespaces
+}
+
 // ── Graph Traversal ──
 
 /**
@@ -238,7 +274,7 @@ function buildXsltSelectExpr(mapping, sourceFormat) {
 
 // ── XSLT Generator ──
 
-export function generateXSLT(nodes, edges, sourceFormat, targetFormat, soapFlags = {}) {
+export function generateXSLT(nodes, edges, sourceFormat, targetFormat, soapFlags = {}, sourceXml = '') {
   const { isSourceSoap = false, isTargetSoap = false } = soapFlags
   const mappings = buildMappings(nodes, edges)
 
@@ -327,16 +363,29 @@ export function generateXSLT(nodes, edges, sourceFormat, targetFormat, soapFlags
     return lines
   }
 
-  // Ensure single root: if multiple top-level keys exist, wrap in <Root>
-  const topKeys = Object.keys(targetTree)
+  // Build the output body — always wrap in the true root element
+  // The schema parser unwraps the XML root for cleaner canvas display,
+  // so handle IDs start from children (e.g. Table.RDFD_KODU).
+  // We must re-wrap in the actual root tag for valid XSLT output.
+  const targetNode = nodes.find((n) => n.id === 'target-payload')
+  const targetRootTag = targetNode?.data?.rootTag || null
+
   let bodyLines
-  if (topKeys.length > 1) {
-    // Multiple roots — wrap everything under a single <Root> element
-    bodyLines = ['      <Root>']
+  if (targetRootTag) {
+    // Re-wrap in the true root element that was unwrapped during parsing
+    bodyLines = [`      <${targetRootTag}>`]
     bodyLines.push(...renderTargetElement(targetTree, '        '))
-    bodyLines.push('      </Root>')
+    bodyLines.push(`      </${targetRootTag}>`)
   } else {
-    bodyLines = renderTargetElement(targetTree, '      ')
+    // JSON target or no rootTag — check if we need a synthetic root
+    const topKeys = Object.keys(targetTree)
+    if (topKeys.length > 1) {
+      bodyLines = ['      <Root>']
+      bodyLines.push(...renderTargetElement(targetTree, '        '))
+      bodyLines.push('      </Root>')
+    } else {
+      bodyLines = renderTargetElement(targetTree, '      ')
+    }
   }
 
   // Determine root match pattern based on source format and SOAP
@@ -375,9 +424,29 @@ export function generateXSLT(nodes, edges, sourceFormat, targetFormat, soapFlags
     </xsl:choose>
   </xsl:template>` : ''
 
-  // SOAP namespace declaration
-  const soapNsAttr = (isSourceSoap || isTargetSoap)
-    ? '\n    xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"'
+  // Collect namespace declarations for the stylesheet
+  const reservedPrefixes = new Set(['xsl', 'xml'])
+  const nsAttrs = []
+
+  // SOAP namespace
+  if (isSourceSoap || isTargetSoap) {
+    nsAttrs.push('xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"')
+    reservedPrefixes.add('soapenv')
+  }
+
+  // Extract custom namespaces from source XML
+  if (sourceFormat === 'xml' && sourceXml) {
+    const extracted = extractNamespacesFromXML(sourceXml)
+    for (const [prefix, uri] of extracted) {
+      if (!prefix) continue // skip default namespace — not useful in XPath 1.0
+      if (reservedPrefixes.has(prefix)) continue
+      nsAttrs.push(`xmlns:${prefix}="${uri}"`)
+      reservedPrefixes.add(prefix)
+    }
+  }
+
+  const extraNsBlock = nsAttrs.length > 0
+    ? '\n' + nsAttrs.map((a) => `    ${a}`).join('\n')
     : ''
 
   // Wrap body in SOAP envelope if target needs it
@@ -403,7 +472,7 @@ export function generateXSLT(nodes, edges, sourceFormat, targetFormat, soapFlags
   Source root(s): ${rootElements.join(', ') || 'N/A'}
 -->
 <xsl:stylesheet version="1.0"
-    xmlns:xsl="http://www.w3.org/1999/XSL/Transform"${soapNsAttr}>
+    xmlns:xsl="http://www.w3.org/1999/XSL/Transform"${extraNsBlock}>
 
   <xsl:output method="xml" indent="yes" encoding="UTF-8"/>
 
@@ -674,6 +743,10 @@ export function generateGroovy(nodes, edges, sourceFormat, targetFormat, platfor
 
   const contentType = targetFormat === 'json' ? 'application/json' : 'application/xml'
 
+  // Get true root tag from target node (unwrapped during parsing)
+  const groovyTargetNode = nodes.find((n) => n.id === 'target-payload')
+  const groovyTargetRoot = groovyTargetNode?.data?.rootTag || null
+
   if (targetFormat === 'json') {
     lines.push('    def output = new JsonBuilder()')
     lines.push('    output {')
@@ -691,7 +764,13 @@ export function generateGroovy(nodes, edges, sourceFormat, targetFormat, platfor
       }
     }
 
-    renderJsonBuilder(targetTree, '        ')
+    if (groovyTargetRoot) {
+      lines.push(`        ${groovyTargetRoot} {`)
+      renderJsonBuilder(targetTree, '            ')
+      lines.push('        }')
+    } else {
+      renderJsonBuilder(targetTree, '        ')
+    }
     lines.push('    }')
     lines.push('')
     const setBodyLines = config.setBody(contentType)
@@ -719,13 +798,25 @@ export function generateGroovy(nodes, edges, sourceFormat, targetFormat, platfor
       lines.push("    xml.'soapenv:Envelope'('xmlns:soapenv': 'http://schemas.xmlsoap.org/soap/envelope/') {")
       lines.push("        'soapenv:Header'()")
       lines.push("        'soapenv:Body' {")
-      renderMarkupBuilder(targetTree, '            ')
+      if (groovyTargetRoot) {
+        lines.push(`            ${groovyTargetRoot} {`)
+        renderMarkupBuilder(targetTree, '                ')
+        lines.push('            }')
+      } else {
+        renderMarkupBuilder(targetTree, '            ')
+      }
       lines.push('        }')
       lines.push('    }')
     } else {
-      lines.push('    xml {')
-      renderMarkupBuilder(targetTree, '        ')
-      lines.push('    }')
+      if (groovyTargetRoot) {
+        lines.push(`    xml.${groovyTargetRoot} {`)
+        renderMarkupBuilder(targetTree, '        ')
+        lines.push('    }')
+      } else {
+        lines.push('    xml {')
+        renderMarkupBuilder(targetTree, '        ')
+        lines.push('    }')
+      }
     }
     lines.push('')
     const setBodyLines = config.setBody(contentType)
