@@ -196,6 +196,13 @@ body {
   background: var(--color-text-secondary);
 }
 
+/* ── Monaco Editor CSS isolation ── */
+.monaco-editor,
+.monaco-editor * {
+  letter-spacing: normal !important;
+  line-height: normal;
+}
+
 /* ── Resizer handles ── */
 .resizer-handle:hover .resizer-line,
 .resizer-handle:active .resizer-line {

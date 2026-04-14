@@ -86,14 +86,13 @@ function SoapEnvelopeHint({ position }) {
 
   return (
     <div
-      className="px-4 font-mono text-[10px] leading-[18px] select-none pointer-events-none"
+      className="flex-none px-4 font-mono text-[10px] leading-[16px] select-none pointer-events-none"
       style={{
-        color: 'rgba(139,92,246,0.35)',
-        backgroundColor: 'rgba(139,92,246,0.03)',
-        borderTop: isTop ? 'none' : '1px dashed rgba(139,92,246,0.15)',
-        borderBottom: isTop ? '1px dashed rgba(139,92,246,0.15)' : 'none',
-        paddingTop: isTop ? 4 : 2,
-        paddingBottom: isTop ? 2 : 4,
+        color: 'rgba(139,92,246,0.4)',
+        backgroundColor: 'rgba(139,92,246,0.04)',
+        borderTop: isTop ? 'none' : '1px dashed rgba(139,92,246,0.2)',
+        borderBottom: isTop ? '1px dashed rgba(139,92,246,0.2)' : 'none',
+        padding: '3px 16px',
       }}
     >
       {lines.map((l, i) => (
@@ -164,7 +163,7 @@ export default function LeftPanel({ onCollapse }) {
         </div>
         <ConversionToast error={conversionError.source} />
         {showSourceEnvelope && <SoapEnvelopeHint position="top" />}
-        <div className="flex-1 min-h-0">
+        <div className="flex-1 min-h-0 relative overflow-hidden">
           <CodeEditor
             value={requestCode}
             onChange={setRequestCode}
@@ -193,7 +192,7 @@ export default function LeftPanel({ onCollapse }) {
         </div>
         <ConversionToast error={conversionError.target} />
         {showTargetEnvelope && <SoapEnvelopeHint position="top" />}
-        <div className="flex-1 min-h-0">
+        <div className="flex-1 min-h-0 relative overflow-hidden">
           <CodeEditor
             value={responseStructure}
             onChange={setResponseStructure}

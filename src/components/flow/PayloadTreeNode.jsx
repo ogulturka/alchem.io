@@ -70,7 +70,7 @@ function TreeRow({ item, depth, parentPath, handleType, handlePosition, searchQu
 
         {/* Icon */}
         {hasChildren ? (
-          <FolderOpen size={12} style={{ color: 'var(--color-accent-secondary)', flexShrink: 0 }} />
+          <FolderOpen size={12} style={{ color: item.isArray ? '#06b6d4' : 'var(--color-accent-secondary)', flexShrink: 0 }} />
         ) : (
           <span
             className="w-2 h-2 rounded-full flex-shrink-0"
@@ -85,6 +85,20 @@ function TreeRow({ item, depth, parentPath, handleType, handlePosition, searchQu
         >
           {item.field || item.label}
         </span>
+
+        {/* Array badge */}
+        {item.isArray && (
+          <span
+            className="text-[8px] font-mono font-bold px-1 py-px rounded flex-shrink-0"
+            style={{
+              color: '#06b6d4',
+              backgroundColor: 'rgba(6,182,212,0.12)',
+              border: '1px solid rgba(6,182,212,0.25)',
+            }}
+          >
+            0..n
+          </span>
+        )}
 
         {/* Type badge — interactive select */}
         {item.type && (
