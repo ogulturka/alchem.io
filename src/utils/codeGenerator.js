@@ -161,6 +161,62 @@ function dotToGroovyChain(dotPath) {
   return dotPath.split('.').join('.')
 }
 
+/** Convert a single segment to local-name XPath step */
+function segToLocalName(seg) {
+  const localName = seg.includes(':') ? seg.split(':').pop() : seg
+  return `*[local-name()='${localName}']`
+}
+
+// ── Array Loop Inference ──
+
+/**
+ * Collect all array paths from the schema tree.
+ * Returns a Set of dot-paths that are marked isArray.
+ */
+function collectArrayPaths(tree, parentPath) {
+  const paths = new Set()
+  for (const item of tree) {
+    const name = item.field || item.label || ''
+    const path = parentPath ? `${parentPath}.${name}` : name
+    if (item.isArray) paths.add(path)
+    if (item.children) {
+      for (const p of collectArrayPaths(item.children, path)) {
+        paths.add(p)
+      }
+    }
+  }
+  return paths
+}
+
+/**
+ * For a target array path, find the common source array parent
+ * by looking at mappings whose target path starts with the array path.
+ * Returns the longest common source prefix that likely represents the source array.
+ */
+function inferSourceArrayPath(targetArrayPath, mappings) {
+  const childMappings = mappings.filter((m) =>
+    m.targetPath.startsWith(targetArrayPath + '.') && m.sourcePaths.length > 0
+  )
+  if (childMappings.length === 0) return null
+
+  // Find the common prefix of all source paths
+  const sourcePaths = childMappings.map((m) => m.sourcePaths[0]).filter(Boolean)
+  if (sourcePaths.length === 0) return null
+
+  const firstParts = sourcePaths[0].split('.')
+  let commonLen = firstParts.length - 1 // exclude the leaf field
+  for (const sp of sourcePaths.slice(1)) {
+    const parts = sp.split('.')
+    const maxCheck = Math.min(commonLen, parts.length - 1)
+    let match = 0
+    while (match < maxCheck && parts[match] === firstParts[match]) match++
+    commonLen = match
+  }
+
+  if (commonLen <= 0) return null
+  return firstParts.slice(0, commonLen).join('.')
+}
+
 // ── XSLT 1.0 Helpers ──
 
 const LOWER = 'abcdefghijklmnopqrstuvwxyz'
@@ -292,6 +348,11 @@ export function generateXSLT(nodes, edges, sourceFormat, targetFormat, soapFlags
   // Track whether we need the string-replace named template
   let needsReplaceTemplate = false
 
+  // Collect array paths from the target schema tree
+  const targetNode = nodes.find((n) => n.id === 'target-payload')
+  const targetSchemaTree = targetNode?.data?.tree || []
+  const targetArrayPaths = collectArrayPaths(targetSchemaTree, '')
+
   // Build nested target XML tree from mapping paths
   const targetTree = {}
   for (const m of mappings) {
@@ -308,90 +369,121 @@ export function generateXSLT(nodes, edges, sourceFormat, targetFormat, soapFlags
     current[parts[parts.length - 1]] = { __mapping: m }
   }
 
-  function renderTargetElement(tree, indent) {
+  /**
+   * Build an XPath expression for a mapping, optionally relative to a loop context.
+   * When insideLoop is a source array prefix, strip it and use relative path.
+   */
+  function buildSelectExpr(m, insideLoop) {
+    if (insideLoop && m.sourcePaths[0]) {
+      const sp = m.sourcePaths[0]
+      // If the source path starts with the loop prefix, make it relative
+      if (sp.startsWith(insideLoop + '.')) {
+        const relPath = sp.slice(insideLoop.length + 1)
+        return segToLocalName(relPath)
+      }
+    }
+    return buildXsltSelectExpr(m, sourceFormat)
+  }
+
+  function renderLeafMapping(m, key, indent, insideLoop) {
+    const lines = []
+    const op = m.transforms.length > 0 ? m.transforms[0].operation : null
+
+    if (op === 'ifelse') {
+      const condPath = m.inputMap['condition'] || m.sourcePaths[0]
+      const truePath = m.inputMap['true'] || m.sourcePaths[1]
+      const falsePath = m.inputMap['false'] || m.sourcePaths[2]
+      const condExpr = condPath ? buildXPathExpr(condPath, sourceFormat) : 'true()'
+      const trueExpr = truePath ? buildXPathExpr(truePath, sourceFormat) : "''"
+      const falseExpr = falsePath ? buildXPathExpr(falsePath, sourceFormat) : "''"
+
+      lines.push(`${indent}<${key}>`)
+      lines.push(`${indent}  <xsl:choose>`)
+      lines.push(`${indent}    <xsl:when test="${condExpr}">`)
+      lines.push(`${indent}      <xsl:value-of select="${trueExpr}"/>`)
+      lines.push(`${indent}    </xsl:when>`)
+      lines.push(`${indent}    <xsl:otherwise>`)
+      lines.push(`${indent}      <xsl:value-of select="${falseExpr}"/>`)
+      lines.push(`${indent}    </xsl:otherwise>`)
+      lines.push(`${indent}  </xsl:choose>`)
+      lines.push(`${indent}</${key}>`)
+    } else if (op === 'replace') {
+      needsReplaceTemplate = true
+      const srcPath = m.inputMap['source'] || m.sourcePaths[0]
+      const searchFor = m.nodeData?.searchFor || ''
+      const replaceWith = m.nodeData?.replaceWith || ''
+      const srcExpr = srcPath ? buildXPathExpr(srcPath, sourceFormat) : "''"
+
+      lines.push(`${indent}<${key}>`)
+      lines.push(`${indent}  <xsl:call-template name="string-replace">`)
+      lines.push(`${indent}    <xsl:with-param name="text" select="${srcExpr}"/>`)
+      lines.push(`${indent}    <xsl:with-param name="search" select="'${searchFor.replace(/'/g, "''")}'"/>`)
+      lines.push(`${indent}    <xsl:with-param name="replace" select="'${replaceWith.replace(/'/g, "''")}'"/>`)
+      lines.push(`${indent}  </xsl:call-template>`)
+      lines.push(`${indent}</${key}>`)
+    } else {
+      const selectExpr = buildSelectExpr(m, insideLoop)
+      lines.push(`${indent}<${key}>`)
+      lines.push(`${indent}  <xsl:value-of select="${selectExpr}"/>`)
+      lines.push(`${indent}</${key}>`)
+    }
+    return lines
+  }
+
+  function renderTargetElement(tree, indent, currentPath, insideLoop) {
     const lines = []
     for (const [key, value] of Object.entries(tree)) {
+      const nodePath = currentPath ? `${currentPath}.${key}` : key
+
       if (value.__mapping) {
-        // Leaf mapping
-        const m = value.__mapping
-        const op = m.transforms.length > 0 ? m.transforms[0].operation : null
-
-        // ifelse → xsl:choose
-        if (op === 'ifelse') {
-          const condPath = m.inputMap['condition'] || m.sourcePaths[0]
-          const truePath = m.inputMap['true'] || m.sourcePaths[1]
-          const falsePath = m.inputMap['false'] || m.sourcePaths[2]
-          const condExpr = condPath ? buildXPathExpr(condPath, sourceFormat) : 'true()'
-          const trueExpr = truePath ? buildXPathExpr(truePath, sourceFormat) : "''"
-          const falseExpr = falsePath ? buildXPathExpr(falsePath, sourceFormat) : "''"
-
-          lines.push(`${indent}<${key}>`)
-          lines.push(`${indent}  <xsl:choose>`)
-          lines.push(`${indent}    <xsl:when test="${condExpr}">`)
-          lines.push(`${indent}      <xsl:value-of select="${trueExpr}"/>`)
-          lines.push(`${indent}    </xsl:when>`)
-          lines.push(`${indent}    <xsl:otherwise>`)
-          lines.push(`${indent}      <xsl:value-of select="${falseExpr}"/>`)
-          lines.push(`${indent}    </xsl:otherwise>`)
-          lines.push(`${indent}  </xsl:choose>`)
-          lines.push(`${indent}</${key}>`)
-        }
-        // replace → call-template (XSLT 1.0 has no replace function)
-        else if (op === 'replace') {
-          needsReplaceTemplate = true
-          const srcPath = m.inputMap['source'] || m.sourcePaths[0]
-          const searchFor = m.nodeData?.searchFor || ''
-          const replaceWith = m.nodeData?.replaceWith || ''
-          const srcExpr = srcPath ? buildXPathExpr(srcPath, sourceFormat) : "''"
-
-          lines.push(`${indent}<${key}>`)
-          lines.push(`${indent}  <xsl:call-template name="string-replace">`)
-          lines.push(`${indent}    <xsl:with-param name="text" select="${srcExpr}"/>`)
-          lines.push(`${indent}    <xsl:with-param name="search" select="'${searchFor.replace(/'/g, "''")}'"/>`)
-          lines.push(`${indent}    <xsl:with-param name="replace" select="'${replaceWith.replace(/'/g, "''")}'"/>`)
-          lines.push(`${indent}  </xsl:call-template>`)
-          lines.push(`${indent}</${key}>`)
-        }
-        // All other operations → xsl:value-of
-        else {
-          const selectExpr = buildXsltSelectExpr(m, sourceFormat)
-          lines.push(`${indent}<${key}>`)
-          lines.push(`${indent}  <xsl:value-of select="${selectExpr}"/>`)
-          lines.push(`${indent}</${key}>`)
-        }
+        lines.push(...renderLeafMapping(value.__mapping, key, indent, insideLoop))
       } else {
-        // Nested element — recurse into children
+        // Nested element — check if this is an array node
         const children = value.__children || value
-        lines.push(`${indent}<${key}>`)
-        lines.push(...renderTargetElement(children, indent + '  '))
-        lines.push(`${indent}</${key}>`)
+        const isArray = targetArrayPaths.has(nodePath)
+
+        if (isArray && sourceFormat === 'xml') {
+          // Infer the source array to loop over
+          const srcArrayPath = inferSourceArrayPath(nodePath, mappings)
+          if (srcArrayPath) {
+            const srcArrayXPath = dotToXPath(srcArrayPath)
+            lines.push(`${indent}<xsl:for-each select="${srcArrayXPath}">`)
+            lines.push(`${indent}  <${key}>`)
+            lines.push(...renderTargetElement(children, indent + '    ', nodePath, srcArrayPath))
+            lines.push(`${indent}  </${key}>`)
+            lines.push(`${indent}</xsl:for-each>`)
+          } else {
+            // Can't infer source array — fall back to normal rendering
+            lines.push(`${indent}<${key}>`)
+            lines.push(...renderTargetElement(children, indent + '  ', nodePath, insideLoop))
+            lines.push(`${indent}</${key}>`)
+          }
+        } else {
+          lines.push(`${indent}<${key}>`)
+          lines.push(...renderTargetElement(children, indent + '  ', nodePath, insideLoop))
+          lines.push(`${indent}</${key}>`)
+        }
       }
     }
     return lines
   }
 
   // Build the output body — always wrap in the true root element
-  // The schema parser unwraps the XML root for cleaner canvas display,
-  // so handle IDs start from children (e.g. Table.RDFD_KODU).
-  // We must re-wrap in the actual root tag for valid XSLT output.
-  const targetNode = nodes.find((n) => n.id === 'target-payload')
   const targetRootTag = targetNode?.data?.rootTag || null
 
   let bodyLines
   if (targetRootTag) {
-    // Re-wrap in the true root element that was unwrapped during parsing
     bodyLines = [`      <${targetRootTag}>`]
-    bodyLines.push(...renderTargetElement(targetTree, '        '))
+    bodyLines.push(...renderTargetElement(targetTree, '        ', '', null))
     bodyLines.push(`      </${targetRootTag}>`)
   } else {
-    // JSON target or no rootTag — check if we need a synthetic root
     const topKeys = Object.keys(targetTree)
     if (topKeys.length > 1) {
       bodyLines = ['      <Root>']
-      bodyLines.push(...renderTargetElement(targetTree, '        '))
+      bodyLines.push(...renderTargetElement(targetTree, '        ', '', null))
       bodyLines.push('      </Root>')
     } else {
-      bodyLines = renderTargetElement(targetTree, '      ')
+      bodyLines = renderTargetElement(targetTree, '      ', '', null)
     }
   }
 
@@ -735,48 +827,93 @@ export function generateGroovy(nodes, edges, sourceFormat, targetFormat, platfor
   lines.push('')
   lines.push('    // ─── Build Output Payload ───')
 
+  // Collect target array paths for Groovy loop detection
+  const groovyTargetNode = nodes.find((n) => n.id === 'target-payload')
+  const groovyTargetSchemaTree = groovyTargetNode?.data?.tree || []
+  const groovyArrayPaths = collectArrayPaths(groovyTargetSchemaTree, '')
+
   // ── Build target structure tree (using deduplicated varNames) ──
+  // Also store the original mapping for array children (used for inline access)
   const targetTree = {}
   for (const m of mappings) {
-    if (!varNames.has(m.targetPath)) continue // skip duplicates
+    if (!varNames.has(m.targetPath)) continue
     const parts = m.targetPath.split('.')
     let current = targetTree
     for (let i = 0; i < parts.length - 1; i++) {
       if (!current[parts[i]]) current[parts[i]] = { __children: {} }
       current = current[parts[i]].__children || current[parts[i]]
     }
-    current[parts[parts.length - 1]] = { __leaf: true, varName: varNames.get(m.targetPath) }
+    current[parts[parts.length - 1]] = { __leaf: true, varName: varNames.get(m.targetPath), __mapping: m }
   }
 
   const contentType = targetFormat === 'json' ? 'application/json' : 'application/xml'
-
-  // Get true root tag from target node (unwrapped during parsing)
-  const groovyTargetNode = nodes.find((n) => n.id === 'target-payload')
   const groovyTargetRoot = groovyTargetNode?.data?.rootTag || null
 
-  if (targetFormat === 'json') {
-    lines.push('    def output = new JsonBuilder()')
-    lines.push('    output {')
+  /** Build inline Groovy accessor for a field relative to a loop item variable */
+  function groovyInlineAccessor(mapping, loopVar, srcArrayPath) {
+    const sp = mapping.sourcePaths[0]
+    if (!sp) return '""'
+    if (sp.startsWith(srcArrayPath + '.')) {
+      const relField = sp.slice(srcArrayPath.length + 1)
+      const localName = relField.includes(':') ? relField.split(':').pop() : relField
+      if (sourceFormat === 'xml') {
+        return `${loopVar}.'**'.find { it.name() == '${localName}' }?.text() ?: ''`
+      }
+      return `${loopVar}.${relField}`
+    }
+    return buildGroovyAccessor(sp, sourceFormat)
+  }
 
-    function renderJsonBuilder(tree, indent) {
-      for (const [key, val] of Object.entries(tree)) {
-        if (val.__leaf) {
-          lines.push(`${indent}"${key}" ${val.varName}`)
+  function renderGroovyTree(tree, indent, currentPath, loopContext) {
+    for (const [key, val] of Object.entries(tree)) {
+      const nodePath = currentPath ? `${currentPath}.${key}` : key
+
+      if (val.__leaf) {
+        if (loopContext && val.__mapping) {
+          // Inside a loop — use inline accessor relative to loop variable
+          const expr = groovyInlineAccessor(val.__mapping, loopContext.loopVar, loopContext.srcArrayPath)
+          lines.push(`${indent}'${key}'(${expr})`)
         } else {
-          const children = val.__children || val
+          lines.push(`${indent}${key}(${val.varName})`)
+        }
+      } else {
+        const children = val.__children || val
+        const isArray = groovyArrayPaths.has(nodePath)
+
+        if (isArray && sourceFormat === 'xml') {
+          const srcArrayPath = inferSourceArrayPath(nodePath, mappings)
+          if (srcArrayPath) {
+            const srcLocalName = srcArrayPath.split('.').pop()
+            const localName = srcLocalName.includes(':') ? srcLocalName.split(':').pop() : srcLocalName
+            const loopVar = 'item'
+            lines.push(`${indent}src.'**'.findAll { it.name() == '${localName}' }.each { ${loopVar} ->`)
+            lines.push(`${indent}    '${key}' {`)
+            renderGroovyTree(children, indent + '        ', nodePath, { loopVar, srcArrayPath })
+            lines.push(`${indent}    }`)
+            lines.push(`${indent}}`)
+          } else {
+            lines.push(`${indent}${key} {`)
+            renderGroovyTree(children, indent + '    ', nodePath, loopContext)
+            lines.push(`${indent}}`)
+          }
+        } else {
           lines.push(`${indent}${key} {`)
-          renderJsonBuilder(children, indent + '    ')
+          renderGroovyTree(children, indent + '    ', nodePath, loopContext)
           lines.push(`${indent}}`)
         }
       }
     }
+  }
 
+  if (targetFormat === 'json') {
+    lines.push('    def output = new JsonBuilder()')
+    lines.push('    output {')
     if (groovyTargetRoot) {
       lines.push(`        ${groovyTargetRoot} {`)
-      renderJsonBuilder(targetTree, '            ')
+      renderGroovyTree(targetTree, '            ', '', null)
       lines.push('        }')
     } else {
-      renderJsonBuilder(targetTree, '        ')
+      renderGroovyTree(targetTree, '        ', '', null)
     }
     lines.push('    }')
     lines.push('')
@@ -788,40 +925,27 @@ export function generateGroovy(nodes, edges, sourceFormat, targetFormat, platfor
     lines.push('    xml.mkp.xmlDeclaration(version: "1.0", encoding: "UTF-8")')
     lines.push('')
 
-    function renderMarkupBuilder(tree, indent) {
-      for (const [key, val] of Object.entries(tree)) {
-        if (val.__leaf) {
-          lines.push(`${indent}${key}(${val.varName})`)
-        } else {
-          const children = val.__children || val
-          lines.push(`${indent}${key} {`)
-          renderMarkupBuilder(children, indent + '    ')
-          lines.push(`${indent}}`)
-        }
-      }
-    }
-
     if (isTargetSoap) {
       lines.push("    xml.'soapenv:Envelope'('xmlns:soapenv': 'http://schemas.xmlsoap.org/soap/envelope/') {")
       lines.push("        'soapenv:Header'()")
       lines.push("        'soapenv:Body' {")
       if (groovyTargetRoot) {
         lines.push(`            ${groovyTargetRoot} {`)
-        renderMarkupBuilder(targetTree, '                ')
+        renderGroovyTree(targetTree, '                ', '', null)
         lines.push('            }')
       } else {
-        renderMarkupBuilder(targetTree, '            ')
+        renderGroovyTree(targetTree, '            ', '', null)
       }
       lines.push('        }')
       lines.push('    }')
     } else {
       if (groovyTargetRoot) {
         lines.push(`    xml.${groovyTargetRoot} {`)
-        renderMarkupBuilder(targetTree, '        ')
+        renderGroovyTree(targetTree, '        ', '', null)
         lines.push('    }')
       } else {
         lines.push('    xml {')
-        renderMarkupBuilder(targetTree, '        ')
+        renderGroovyTree(targetTree, '        ', '', null)
         lines.push('    }')
       }
     }
