@@ -8,15 +8,17 @@ function FormatDropdown({ value, onChange }) {
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg border cursor-pointer outline-none"
+      className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md cursor-pointer outline-none transition-colors"
       style={{
-        backgroundColor: 'var(--color-bg-tertiary)',
-        borderColor: 'var(--color-border)',
+        backgroundColor: 'transparent',
+        border: 'none',
         color: 'var(--color-accent)',
       }}
+      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)' }}
+      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}
     >
-      <option value="xml">XML</option>
-      <option value="json">JSON</option>
+      <option value="xml" style={{ backgroundColor: 'var(--color-bg-secondary)' }}>XML</option>
+      <option value="json" style={{ backgroundColor: 'var(--color-bg-secondary)' }}>JSON</option>
     </select>
   )
 }
@@ -26,15 +28,20 @@ function SoapToggleButton({ active, onClick, label }) {
     <button
       onClick={onClick}
       title={label}
-      className="flex items-center gap-1 px-2 py-1.5 rounded-lg border text-[10px] font-bold uppercase tracking-wider cursor-pointer transition-all"
+      className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider cursor-pointer transition-all"
       style={{
-        backgroundColor: active ? 'rgba(139,92,246,0.12)' : 'var(--color-bg-tertiary)',
-        borderColor: active ? 'rgba(139,92,246,0.5)' : 'var(--color-border)',
+        backgroundColor: active ? 'rgba(139,92,246,0.1)' : 'transparent',
+        border: 'none',
         color: active ? '#a78bfa' : 'var(--color-text-secondary)',
-        boxShadow: active ? '0 0 8px rgba(139,92,246,0.2)' : 'none',
+      }}
+      onMouseEnter={(e) => {
+        if (!active) e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)'
+      }}
+      onMouseLeave={(e) => {
+        if (!active) e.currentTarget.style.backgroundColor = 'transparent'
       }}
     >
-      <Mail size={10} style={{ opacity: active ? 1 : 0.5 }} />
+      <Mail size={10} style={{ opacity: active ? 1 : 0.4 }} />
       SOAP
     </button>
   )
@@ -45,11 +52,23 @@ function SyncButton({ onClick, error }) {
     <button
       onClick={onClick}
       title={error || 'Parse & sync to canvas'}
-      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[10px] font-medium cursor-pointer transition-colors"
+      className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-medium cursor-pointer transition-colors"
       style={{
-        backgroundColor: error ? '#ef444420' : 'var(--color-bg-tertiary)',
-        borderColor: error ? '#ef4444' : 'var(--color-border)',
+        backgroundColor: error ? 'rgba(239,68,68,0.1)' : 'transparent',
+        border: 'none',
         color: error ? '#ef4444' : 'var(--color-text-secondary)',
+      }}
+      onMouseEnter={(e) => {
+        if (!error) {
+          e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)'
+          e.currentTarget.style.color = 'var(--color-text-primary)'
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!error) {
+          e.currentTarget.style.backgroundColor = 'transparent'
+          e.currentTarget.style.color = 'var(--color-text-secondary)'
+        }
       }}
     >
       {error ? <AlertCircle size={10} /> : <RefreshCw size={10} />}
@@ -129,35 +148,37 @@ export default function LeftPanel({ onCollapse }) {
     >
       {/* Source Editor */}
       <div className="flex-1 min-h-0 flex flex-col">
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
-          {onCollapse && (
-            <button
-              onClick={onCollapse}
-              className="flex items-center justify-center rounded-md cursor-pointer border-none transition-colors"
-              style={{
-                width: 26,
-                height: 26,
-                backgroundColor: 'transparent',
-                color: 'var(--color-text-secondary)',
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--color-accent)'; e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.06)' }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--color-text-secondary)'; e.currentTarget.style.backgroundColor = 'transparent' }}
-              title="Collapse left panel"
-            >
-              <PanelLeftClose size={15} />
-            </button>
-          )}
-          <FileCode size={15} className="text-accent" />
-          <span className="text-[13px] uppercase tracking-wider font-semibold text-text-secondary">
-            Source
-          </span>
-          <div className="ml-auto flex items-center gap-2">
+        <div className="flex items-center justify-between w-full px-4 py-2.5 border-b border-border">
+          <div className="flex items-center gap-2 min-w-0">
+            {onCollapse && (
+              <button
+                onClick={onCollapse}
+                className="flex items-center justify-center rounded-md cursor-pointer border-none transition-colors p-1 flex-shrink-0"
+                style={{
+                  backgroundColor: 'transparent',
+                  color: 'var(--color-text-secondary)',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--color-accent)'; e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)' }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--color-text-secondary)'; e.currentTarget.style.backgroundColor = 'transparent' }}
+                title="Collapse left panel"
+              >
+                <PanelLeftClose size={14} />
+              </button>
+            )}
+            <FileCode size={14} className="text-accent flex-shrink-0" />
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-text-secondary">
+              Source
+            </span>
+          </div>
+          <div className="flex items-center gap-0.5 flex-shrink-0">
             <SoapToggleButton
               active={isSourceSoap}
               onClick={() => setSourceSoap(!isSourceSoap)}
               label="Strip SOAP Envelope from source payload"
             />
+            <div style={{ width: 1, height: 14, backgroundColor: 'var(--color-border)', opacity: 0.5 }} />
             <FormatDropdown value={sourceFormat} onChange={setSourceFormat} />
+            <div style={{ width: 1, height: 14, backgroundColor: 'var(--color-border)', opacity: 0.5 }} />
             <SyncButton onClick={syncSourceTree} error={parseError.source} />
           </div>
         </div>
@@ -175,18 +196,22 @@ export default function LeftPanel({ onCollapse }) {
 
       {/* Target Editor */}
       <div className="flex-1 min-h-0 flex flex-col border-t border-border">
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
-          <FileJson size={15} className="text-accent" />
-          <span className="text-[13px] uppercase tracking-wider font-semibold text-text-secondary">
-            Target
-          </span>
-          <div className="ml-auto flex items-center gap-2">
+        <div className="flex items-center justify-between w-full px-4 py-2.5 border-b border-border">
+          <div className="flex items-center gap-2 min-w-0">
+            <FileJson size={14} className="text-accent flex-shrink-0" />
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-text-secondary">
+              Target
+            </span>
+          </div>
+          <div className="flex items-center gap-0.5 flex-shrink-0">
             <SoapToggleButton
               active={isTargetSoap}
               onClick={() => setTargetSoap(!isTargetSoap)}
               label="Wrap output in SOAP Envelope"
             />
+            <div style={{ width: 1, height: 14, backgroundColor: 'var(--color-border)', opacity: 0.5 }} />
             <FormatDropdown value={targetFormat} onChange={setTargetFormat} />
+            <div style={{ width: 1, height: 14, backgroundColor: 'var(--color-border)', opacity: 0.5 }} />
             <SyncButton onClick={syncTargetTree} error={parseError.target} />
           </div>
         </div>

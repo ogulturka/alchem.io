@@ -1,14 +1,14 @@
 import { useState, useCallback } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Code2, Copy, Check, FlaskConical, PanelRightClose } from 'lucide-react'
+import { Code2, Copy, Check, FlaskConical, PanelRightClose, ChevronDown, Server } from 'lucide-react'
 import AlchemizeButton from '../ui/AlchemizeButton'
 import TestSandboxModal from '../ui/TestSandboxModal'
 import CodeEditor from '../editors/CodeEditor'
 import useAppStore from '../../store/useAppStore'
 
 const outputTabs = [
-  { id: 'xslt', label: 'XSLT' },
-  { id: 'groovy', label: 'Groovy' },
+  { id: 'xslt', label: 'XSLT', accent: '#06b6d4' },
+  { id: 'groovy', label: 'Groovy', accent: '#22c55e' },
 ]
 
 const platforms = [
@@ -32,36 +32,27 @@ function CopyOverlay({ code }) {
     <motion.button
       onClick={handleCopy}
       disabled={!code}
-      className="absolute top-3 right-3 z-10 flex items-center justify-center w-8 h-8 rounded-lg cursor-pointer disabled:opacity-20 disabled:cursor-default"
+      className="absolute top-3 right-3 z-10 flex items-center justify-center rounded-lg cursor-pointer disabled:opacity-20 disabled:cursor-default border-none"
       style={{
-        backgroundColor: copied ? '#22c55e25' : 'rgba(255,255,255,0.06)',
+        width: 30,
+        height: 30,
+        backgroundColor: copied ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.05)',
         backdropFilter: 'blur(8px)',
+        border: copied ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(255,255,255,0.08)',
         color: copied ? '#22c55e' : 'var(--color-text-secondary)',
       }}
-      whileHover={{ scale: 1.1, backgroundColor: 'rgba(255,255,255,0.12)' }}
-      whileTap={{ scale: 0.9 }}
+      whileHover={{ scale: 1.08, backgroundColor: copied ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.1)' }}
+      whileTap={{ scale: 0.92 }}
       title={copied ? 'Copied!' : 'Copy to clipboard'}
     >
       <AnimatePresence mode="wait">
         {copied ? (
-          <motion.div
-            key="check"
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0, opacity: 0 }}
-            transition={{ duration: 0.15 }}
-          >
-            <Check size={14} />
+          <motion.div key="check" initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0, opacity: 0 }} transition={{ duration: 0.15 }}>
+            <Check size={14} strokeWidth={2.5} />
           </motion.div>
         ) : (
-          <motion.div
-            key="copy"
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0, opacity: 0 }}
-            transition={{ duration: 0.15 }}
-          >
-            <Copy size={14} />
+          <motion.div key="copy" initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0, opacity: 0 }} transition={{ duration: 0.15 }}>
+            <Copy size={13} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -80,128 +71,141 @@ export default function RightPanel({ onCollapse }) {
 
   const code = generatedCode[activeOutputTab]
   const language = activeOutputTab === 'xslt' ? 'xml' : 'javascript'
+  const activeTabAccent = outputTabs.find((t) => t.id === activeOutputTab)?.accent || 'var(--color-accent)'
 
   return (
     <div className="h-full flex flex-col bg-bg-secondary">
 
-      {/* ── Panel Title ── */}
-      <div
-        className="flex items-center gap-3 px-5 py-4"
-        style={{ borderBottom: '1px solid var(--color-border)' }}
-      >
-        <Code2 size={16} style={{ color: 'var(--color-accent)' }} />
-        <span
-          className="text-[13px] uppercase tracking-wider font-semibold"
-          style={{ color: 'var(--color-text-secondary)' }}
-        >
-          Code Output
-        </span>
+      {/* ── Header ── */}
+      <div className="flex items-center justify-between w-full px-4 py-2.5 border-b border-border">
+        <div className="flex items-center gap-2 min-w-0">
+          <Code2 size={14} className="text-accent flex-shrink-0" />
+          <span className="text-[11px] uppercase tracking-wider font-semibold text-text-secondary">
+            Code Output
+          </span>
+        </div>
         {onCollapse && (
           <button
             onClick={onCollapse}
-            className="ml-auto flex items-center justify-center rounded-md cursor-pointer border-none transition-colors"
+            className="flex items-center justify-center rounded-md cursor-pointer border-none transition-colors p-1 flex-shrink-0"
             style={{
-              width: 26,
-              height: 26,
               backgroundColor: 'transparent',
               color: 'var(--color-text-secondary)',
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--color-accent)'; e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.06)' }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--color-accent)'; e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)' }}
             onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--color-text-secondary)'; e.currentTarget.style.backgroundColor = 'transparent' }}
             title="Collapse right panel"
           >
-            <PanelRightClose size={15} />
+            <PanelRightClose size={14} />
           </button>
         )}
       </div>
 
       {/* ── Controls Stack ── */}
-      <div className="flex flex-col gap-5 px-5 pt-5 pb-4">
+      <div className="flex flex-col gap-3 px-4 pt-4 pb-3">
 
-        {/* Layer 1: Alchemize Button */}
+        {/* Primary action: Alchemize */}
         <AlchemizeButton />
 
-        {/* Layer 1.5: Test Sandbox Button */}
+        {/* Secondary action: Test Sandbox */}
         <motion.button
           onClick={() => setSandboxOpen(true)}
-          className="w-full py-3 px-5 rounded-lg font-semibold text-[12px] tracking-wider cursor-pointer flex items-center justify-center gap-2"
+          className="w-full py-2.5 px-4 rounded-xl font-semibold text-[12px] cursor-pointer flex items-center justify-center gap-2 border-none"
           style={{
-            backgroundColor: 'var(--color-bg-tertiary)',
-            border: '1px solid var(--color-border)',
+            backgroundColor: 'rgba(255,255,255,0.04)',
+            border: '1px solid rgba(255,255,255,0.08)',
             color: 'var(--color-text-primary)',
-            transition: 'border-color 0.2s, box-shadow 0.2s',
+            transition: 'all 0.2s',
           }}
           whileHover={{
-            scale: 1.02,
-            borderColor: 'var(--color-accent)',
-            boxShadow: '0 0 16px var(--color-accent-glow)',
+            backgroundColor: 'rgba(168,85,247,0.08)',
+            borderColor: 'rgba(168,85,247,0.3)',
+            boxShadow: '0 0 12px rgba(168,85,247,0.15)',
           }}
-          whileTap={{ scale: 0.97 }}
+          whileTap={{ scale: 0.98 }}
         >
-          <FlaskConical size={15} style={{ color: 'var(--color-accent)' }} />
+          <FlaskConical size={13} style={{ color: '#a78bfa' }} />
           Run Test Sandbox
         </motion.button>
 
-        {/* Layer 2: Platform Selector (always visible, applies to Groovy output) */}
-        <div className="flex flex-col gap-2">
+        {/* Platform Selector */}
+        <div className="flex flex-col gap-1.5 mt-1">
           <label
-            className="text-[10px] font-bold uppercase tracking-widest"
+            className="text-[10.5px] font-medium flex items-center gap-1.5"
             style={{ color: 'var(--color-text-secondary)' }}
           >
+            <Server size={10} style={{ opacity: 0.7 }} />
             Target Platform
           </label>
-          <select
-            value={groovyPlatform}
-            onChange={(e) => setGroovyPlatform(e.target.value)}
-            className="w-full px-4 py-3 rounded-lg text-[12px] font-medium cursor-pointer outline-none transition-all duration-200"
-            style={{
-              backgroundColor: 'var(--color-bg-tertiary)',
-              borderWidth: '1px',
-              borderStyle: 'solid',
-              borderColor: 'var(--color-border)',
-              color: 'var(--color-text-primary)',
-              appearance: 'none',
-              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
-              backgroundRepeat: 'no-repeat',
-              backgroundPosition: 'right 14px center',
-              paddingRight: '36px',
-            }}
-          >
-            {platforms.map((p) => (
-              <option key={p.id} value={p.id}>{p.label}</option>
-            ))}
-          </select>
+          <div className="relative">
+            <select
+              value={groovyPlatform}
+              onChange={(e) => setGroovyPlatform(e.target.value)}
+              className="w-full px-3.5 py-2.5 rounded-lg text-[12px] font-medium cursor-pointer outline-none transition-all"
+              style={{
+                backgroundColor: 'rgba(255,255,255,0.03)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                color: 'var(--color-text-primary)',
+                appearance: 'none',
+                paddingRight: '32px',
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = 'rgba(168,85,247,0.4)'
+                e.target.style.boxShadow = '0 0 0 3px rgba(168,85,247,0.08)'
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = 'rgba(255,255,255,0.08)'
+                e.target.style.boxShadow = 'none'
+              }}
+            >
+              {platforms.map((p) => (
+                <option key={p.id} value={p.id} style={{ backgroundColor: 'var(--color-bg-secondary)' }}>{p.label}</option>
+              ))}
+            </select>
+            <ChevronDown
+              size={13}
+              className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
+              style={{ color: 'var(--color-text-secondary)', opacity: 0.6 }}
+            />
+          </div>
         </div>
 
-        {/* Layer 3: Output Format Tabs */}
+        {/* Output Format Tabs (Segmented Control) */}
         <div
-          className="flex gap-6"
-          style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '2px' }}
+          className="flex items-center rounded-lg p-0.5 mt-1"
+          style={{
+            backgroundColor: 'rgba(0,0,0,0.25)',
+            border: '1px solid rgba(255,255,255,0.06)',
+          }}
         >
           {outputTabs.map((tab) => {
             const isActive = activeOutputTab === tab.id
             return (
-              <button
+              <motion.button
                 key={tab.id}
                 onClick={() => setActiveOutputTab(tab.id)}
-                className="relative pb-3 text-[12px] font-semibold uppercase tracking-wider cursor-pointer bg-transparent border-none transition-colors"
+                className="relative flex-1 py-1.5 text-[11.5px] font-semibold cursor-pointer border-none rounded-md"
                 style={{
-                  color: isActive ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+                  backgroundColor: 'transparent',
+                  color: isActive ? tab.accent : 'var(--color-text-secondary)',
+                  transition: 'color 0.15s',
                 }}
+                whileTap={{ scale: 0.97 }}
               >
-                {tab.label}
                 {isActive && (
                   <motion.div
                     layoutId="active-output-tab"
-                    className="absolute bottom-0 left-0 right-0 rounded-full"
+                    className="absolute inset-0 rounded-md"
                     style={{
-                      height: '2px',
-                      backgroundColor: 'var(--color-accent)',
+                      backgroundColor: `${tab.accent}20`,
+                      border: `1px solid ${tab.accent}40`,
+                      boxShadow: `0 0 12px ${tab.accent}30`,
                     }}
-                    transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                    transition={{ type: 'spring', stiffness: 380, damping: 28 }}
                   />
                 )}
-              </button>
+                <span className="relative z-10">{tab.label}</span>
+              </motion.button>
             )
           })}
         </div>
@@ -211,10 +215,9 @@ export default function RightPanel({ onCollapse }) {
       <div
         className="flex-1 min-h-0 mx-4 mb-4 relative rounded-xl overflow-hidden"
         style={{
-          backgroundColor: 'rgba(0,0,0,0.25)',
-          borderWidth: '1px',
-          borderStyle: 'solid',
-          borderColor: 'var(--color-border)',
+          backgroundColor: 'rgba(0,0,0,0.3)',
+          border: '1px solid rgba(255,255,255,0.06)',
+          boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.2)',
         }}
       >
         <CopyOverlay code={code} />
@@ -232,11 +235,11 @@ export default function RightPanel({ onCollapse }) {
                   {[0, 1, 2, 3, 4].map((i) => (
                     <motion.div
                       key={i}
-                      className="w-1.5 rounded-full"
-                      style={{ backgroundColor: 'var(--color-accent)' }}
+                      className="w-1 rounded-full"
+                      style={{ backgroundColor: activeTabAccent }}
                       animate={{
-                        height: [14, 32, 14],
-                        opacity: [0.4, 1, 0.4],
+                        height: [12, 28, 12],
+                        opacity: [0.3, 1, 0.3],
                       }}
                       transition={{
                         duration: 0.8,
@@ -247,10 +250,10 @@ export default function RightPanel({ onCollapse }) {
                   ))}
                 </div>
                 <span
-                  className="text-xs tracking-wide"
+                  className="text-[11px]"
                   style={{ color: 'var(--color-text-secondary)' }}
                 >
-                  Generating code...
+                  Generating code…
                 </span>
               </div>
             </motion.div>
@@ -258,10 +261,10 @@ export default function RightPanel({ onCollapse }) {
             <motion.div
               key={`output-${activeOutputTab}`}
               className="h-full"
-              initial={{ opacity: 0, y: 8 }}
+              initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
+              transition={{ duration: 0.18 }}
             >
               <CodeEditor value={code} language={language} readOnly />
             </motion.div>

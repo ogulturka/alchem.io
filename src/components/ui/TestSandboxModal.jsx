@@ -223,25 +223,34 @@ function hasXslt2Features(xsltStr) {
     /xmlns:xs\s*=/.test(xsltStr)
 }
 
-// ── Tab Button ──
+// ── Engine Tab (Segmented Control style) ──
 
 function EngineTab({ label, isActive, onClick, color }) {
   return (
-    <button
+    <motion.button
       onClick={onClick}
-      className="relative px-5 py-2.5 text-[11px] font-bold uppercase tracking-widest cursor-pointer bg-transparent border-none transition-colors"
-      style={{ color: isActive ? color : 'var(--color-text-secondary)' }}
+      className="relative px-3.5 py-1.5 text-[11.5px] font-semibold cursor-pointer border-none rounded-md"
+      style={{
+        backgroundColor: 'transparent',
+        color: isActive ? color : 'var(--color-text-secondary)',
+        transition: 'color 0.15s',
+      }}
+      whileTap={{ scale: 0.97 }}
     >
-      {label}
       {isActive && (
         <motion.div
           layoutId="sandbox-engine-tab"
-          className="absolute bottom-0 left-0 right-0 rounded-full"
-          style={{ height: 2, backgroundColor: color }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+          className="absolute inset-0 rounded-md"
+          style={{
+            backgroundColor: `${color}20`,
+            border: `1px solid ${color}40`,
+            boxShadow: `0 0 12px ${color}30`,
+          }}
+          transition={{ type: 'spring', stiffness: 380, damping: 28 }}
         />
       )}
-    </button>
+      <span className="relative z-10">{label}</span>
+    </motion.button>
   )
 }
 
@@ -551,64 +560,85 @@ export default function TestSandboxModal({ open, onClose }) {
 
           {/* Modal */}
           <motion.div
-            className="relative flex flex-col rounded-xl border overflow-hidden"
+            className="relative flex flex-col rounded-lg overflow-hidden"
             style={{
               width: 'min(95vw, 1400px)',
               height: 'min(88vh, 800px)',
               backgroundColor: 'var(--color-bg-primary)',
-              borderColor: 'var(--color-border)',
-              boxShadow: '0 0 60px rgba(0,0,0,0.5), 0 0 30px var(--color-accent-glow)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              boxShadow: '0 24px 60px rgba(0,0,0,0.6), 0 0 80px rgba(168,85,247,0.12), inset 0 1px 0 rgba(255,255,255,0.04)',
             }}
-            initial={{ scale: 0.92, opacity: 0, y: 30 }}
+            initial={{ scale: 0.94, opacity: 0, y: 20 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.92, opacity: 0, y: 30 }}
-            transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+            exit={{ scale: 0.94, opacity: 0, y: 20 }}
+            transition={{ type: 'spring', stiffness: 380, damping: 30 }}
           >
+            {/* Subtle top accent gradient */}
+            <div
+              className="absolute top-0 left-0 right-0 h-px"
+              style={{
+                background: 'linear-gradient(90deg, transparent, rgba(168,85,247,0.6), transparent)',
+              }}
+            />
+
             {/* ── Header ── */}
             <div
-              className="flex items-center gap-3 px-6 py-3 shrink-0"
-              style={{
-                borderBottom: '1px solid var(--color-border)',
-                background: 'linear-gradient(135deg, var(--color-bg-secondary), var(--color-bg-tertiary))',
-              }}
+              className="flex items-center gap-3 px-6 py-3.5 shrink-0"
+              style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
             >
               <div
-                className="flex items-center justify-center w-8 h-8 rounded-lg"
-                style={{ background: 'linear-gradient(135deg, var(--color-accent), var(--color-accent-glow))' }}
+                className="flex items-center justify-center rounded-xl"
+                style={{
+                  width: 36,
+                  height: 36,
+                  background: 'linear-gradient(135deg, rgba(168,85,247,0.2), rgba(168,85,247,0.06))',
+                  border: '1px solid rgba(168,85,247,0.25)',
+                  boxShadow: '0 0 16px rgba(168,85,247,0.15)',
+                }}
               >
-                <FlaskConical size={16} color="white" strokeWidth={2.5} />
+                <FlaskConical size={16} style={{ color: '#a78bfa' }} strokeWidth={2.2} />
               </div>
-              <span
-                className="text-sm font-bold uppercase tracking-widest"
-                style={{ color: 'var(--color-text-primary)' }}
-              >
-                Test Execution Sandbox
-              </span>
 
-              {/* Engine Tabs */}
+              <div className="flex flex-col">
+                <h2 className="text-[15px] font-semibold tracking-tight" style={{ color: 'var(--color-text-primary)' }}>
+                  Test Sandbox
+                </h2>
+                <span className="text-[11px]" style={{ color: 'var(--color-text-secondary)' }}>
+                  Execute and validate your transformation
+                </span>
+              </div>
+
+              {/* Engine Tabs (Segmented Control) */}
               <div
-                className="flex ml-4"
-                style={{ borderBottom: '1px solid var(--color-border)' }}
+                className="flex items-center rounded-lg p-0.5 ml-4"
+                style={{
+                  backgroundColor: 'rgba(0,0,0,0.25)',
+                  border: '1px solid rgba(255,255,255,0.06)',
+                }}
               >
                 <EngineTab
-                  label="XSLT Engine"
+                  label="XSLT"
                   isActive={isXslt}
                   onClick={() => { setEngine('xslt'); setOutputResult(''); setIsError(false) }}
-                  color="var(--color-accent)"
+                  color="#06b6d4"
                 />
                 <EngineTab
-                  label="Groovy Engine"
+                  label="Groovy"
                   isActive={!isXslt}
                   onClick={() => { setEngine('groovy'); setOutputResult(''); setIsError(false) }}
-                  color="#eab308"
+                  color="#22c55e"
                 />
               </div>
 
               {/* Mock badge for Groovy */}
               {!isXslt && (
                 <span
-                  className="text-[9px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider"
-                  style={{ backgroundColor: 'rgba(234,179,8,0.12)', color: '#eab308' }}
+                  className="text-[9.5px] px-2 py-0.5 rounded-md font-semibold"
+                  style={{
+                    backgroundColor: 'rgba(234,179,8,0.1)',
+                    color: '#eab308',
+                    border: '1px solid rgba(234,179,8,0.2)',
+                  }}
                 >
                   JS Mock
                 </span>
@@ -616,18 +646,19 @@ export default function TestSandboxModal({ open, onClose }) {
 
               <button
                 onClick={onClose}
-                className="ml-auto flex items-center justify-center w-8 h-8 rounded-lg cursor-pointer transition-colors"
+                className="ml-auto flex items-center justify-center rounded-lg cursor-pointer transition-all border-none"
                 style={{
-                  backgroundColor: 'rgba(255,255,255,0.05)',
+                  width: 30,
+                  height: 30,
+                  backgroundColor: 'transparent',
                   color: 'var(--color-text-secondary)',
-                  border: 'none',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.15)'
+                  e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.12)'
                   e.currentTarget.style.color = '#ef4444'
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)'
+                  e.currentTarget.style.backgroundColor = 'transparent'
                   e.currentTarget.style.color = 'var(--color-text-secondary)'
                 }}
               >
@@ -639,10 +670,13 @@ export default function TestSandboxModal({ open, onClose }) {
             <div className="flex-1 min-h-0 grid grid-cols-2 grid-rows-2" style={{ gridTemplateRows: '1fr 1fr' }}>
 
               {/* ── Top-Left: Input Payload ── */}
-              <div className="flex flex-col min-h-0" style={{ borderRight: '1px solid var(--color-border)', borderBottom: '1px solid var(--color-border)' }}>
-                <div className="flex items-center gap-2 px-4 py-2 shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
-                  <FileInput size={13} style={{ color: 'var(--color-accent)' }} />
-                  <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--color-text-secondary)' }}>{inputLabel}</span>
+              <div className="flex flex-col min-h-0" style={{ borderRight: '1px solid rgba(255,255,255,0.06)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                <div className="flex items-center gap-2 px-4 py-2.5 shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  <FileInput size={13} style={{ color: '#a78bfa' }} />
+                  <span className="text-[11px] uppercase tracking-wider font-semibold" style={{ color: 'var(--color-text-secondary)' }}>Input Payload</span>
+                  <span className="text-[9.5px] px-1.5 py-0.5 rounded font-mono font-semibold" style={{ backgroundColor: 'rgba(168,85,247,0.08)', color: '#a78bfa', border: '1px solid rgba(168,85,247,0.15)' }}>
+                    {sourceFormat === 'xml' ? 'XML' : 'JSON'}
+                  </span>
                 </div>
                 <div className="flex-1 min-h-0">
                   <CodeEditor value={inputPayload} onChange={(val) => setInputPayload(val || '')} language={inputLang} />
@@ -650,13 +684,17 @@ export default function TestSandboxModal({ open, onClose }) {
               </div>
 
               {/* ── Top-Right: Script Editor ── */}
-              <div className="flex flex-col min-h-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
-                <div className="flex items-center gap-2 px-4 py-2 shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
-                  <FileCode size={13} style={{ color: isXslt ? 'var(--color-accent)' : '#eab308' }} />
-                  <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--color-text-secondary)' }}>
+              <div className="flex flex-col min-h-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                <div className="flex items-center gap-2 px-4 py-2.5 shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  <FileCode size={13} style={{ color: isXslt ? '#06b6d4' : '#22c55e' }} />
+                  <span className="text-[11px] uppercase tracking-wider font-semibold" style={{ color: 'var(--color-text-secondary)' }}>
                     {isXslt ? 'XSLT Stylesheet' : 'Groovy Script'}
                   </span>
-                  <span className="ml-auto text-[8px] px-1.5 py-0.5 rounded font-mono" style={{ backgroundColor: isXslt ? 'rgba(168,85,247,0.08)' : 'rgba(234,179,8,0.08)', color: isXslt ? 'var(--color-accent)' : '#eab308' }}>editable</span>
+                  <span className="ml-auto text-[9.5px] px-1.5 py-0.5 rounded font-mono font-semibold" style={{
+                    backgroundColor: isXslt ? 'rgba(6,182,212,0.08)' : 'rgba(34,197,94,0.08)',
+                    color: isXslt ? '#06b6d4' : '#22c55e',
+                    border: `1px solid ${isXslt ? 'rgba(6,182,212,0.15)' : 'rgba(34,197,94,0.15)'}`,
+                  }}>editable</span>
                 </div>
                 <div className="flex-1 min-h-0">
                   {isXslt
@@ -667,20 +705,21 @@ export default function TestSandboxModal({ open, onClose }) {
               </div>
 
               {/* ── Bottom-Left: Transformation Result ── */}
-              <div className="flex flex-col min-h-0" style={{ borderRight: '1px solid var(--color-border)' }}>
-                <div className="flex items-center gap-2 px-4 py-2 shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
+              <div className="flex flex-col min-h-0" style={{ borderRight: '1px solid rgba(255,255,255,0.06)' }}>
+                <div className="flex items-center gap-2 px-4 py-2.5 shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                   <FileOutput size={13} style={{ color: isError ? '#ef4444' : '#22c55e' }} />
-                  <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--color-text-secondary)' }}>Transformation Result</span>
+                  <span className="text-[11px] uppercase tracking-wider font-semibold" style={{ color: 'var(--color-text-secondary)' }}>Result</span>
                   {isError && (
                     <div className="flex items-center gap-1 ml-auto">
                       <AlertTriangle size={11} color="#ef4444" />
-                      <span className="text-[9px] font-semibold" style={{ color: '#ef4444' }}>Error</span>
+                      <span className="text-[10px] font-semibold" style={{ color: '#ef4444' }}>Error</span>
                     </div>
                   )}
                   {validation && !isError && (
-                    <span className="ml-auto text-[8px] font-bold px-1.5 py-0.5 rounded-md" style={{
-                      backgroundColor: validation.status === 'success' ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)',
+                    <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-md" style={{
+                      backgroundColor: validation.status === 'success' ? 'rgba(34,197,94,0.12)' : 'rgba(245,158,11,0.12)',
                       color: validation.status === 'success' ? '#22c55e' : '#f59e0b',
+                      border: `1px solid ${validation.status === 'success' ? 'rgba(34,197,94,0.25)' : 'rgba(245,158,11,0.25)'}`,
                     }}>
                       {validation.matchPercent}%
                     </span>
@@ -715,14 +754,14 @@ export default function TestSandboxModal({ open, onClose }) {
 
               {/* ── Bottom-Right: Expected Target + Visual Diff ── */}
               <div className="flex flex-col min-h-0">
-                <div className="flex items-center gap-2 px-4 py-2 shrink-0" style={{ borderBottom: '1px solid var(--color-border)' }}>
+                <div className="flex items-center gap-2 px-4 py-2.5 shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                   <FileCheck2 size={13} style={{ color: '#60a5fa' }} />
-                  <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--color-text-secondary)' }}>Expected Target (Diff)</span>
+                  <span className="text-[11px] uppercase tracking-wider font-semibold" style={{ color: 'var(--color-text-secondary)' }}>Expected · Diff</span>
                   {/* Legend */}
-                  <div className="flex items-center gap-2 ml-auto">
-                    <span className="flex items-center gap-1 text-[8px]"><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#22c55e' }} /> Match</span>
-                    <span className="flex items-center gap-1 text-[8px]"><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#ef4444' }} /> Missing</span>
-                    <span className="flex items-center gap-1 text-[8px]"><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#f59e0b' }} /> Mismatch</span>
+                  <div className="flex items-center gap-2.5 ml-auto">
+                    <span className="flex items-center gap-1 text-[9.5px]" style={{ color: 'var(--color-text-secondary)' }}><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#22c55e' }} /> Match</span>
+                    <span className="flex items-center gap-1 text-[9.5px]" style={{ color: 'var(--color-text-secondary)' }}><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#ef4444' }} /> Missing</span>
+                    <span className="flex items-center gap-1 text-[9.5px]" style={{ color: 'var(--color-text-secondary)' }}><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#f59e0b' }} /> Mismatch</span>
                   </div>
                 </div>
 
@@ -767,61 +806,62 @@ export default function TestSandboxModal({ open, onClose }) {
 
             {/* ── Footer ── */}
             <div
-              className="flex items-center justify-center px-6 py-3.5 shrink-0"
-              style={{
-                borderTop: '1px solid var(--color-border)',
-                background: 'linear-gradient(135deg, var(--color-bg-secondary), var(--color-bg-tertiary))',
-              }}
+              className="flex items-center justify-between px-6 py-3.5 shrink-0"
+              style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}
             >
-              <div className="relative">
-                <div
-                  className="absolute -inset-1 rounded-full blur-md opacity-50 animate-pulse"
-                  style={{ backgroundColor: isXslt ? 'var(--color-accent-glow)' : '#eab30880' }}
-                />
-                <motion.button
-                  onClick={handleExecute}
-                  disabled={isExecuting}
-                  className="relative flex items-center gap-2.5 px-10 py-3 rounded-lg font-bold text-white text-sm tracking-wider cursor-pointer disabled:cursor-wait"
-                  style={{
-                    background: isXslt
-                      ? 'linear-gradient(135deg, var(--color-accent), var(--color-accent-glow))'
-                      : 'linear-gradient(135deg, #a16207, #eab308)',
-                    boxShadow: isXslt
-                      ? '0 0 20px var(--color-accent-glow), 0 4px 12px rgba(0,0,0,0.3)'
-                      : '0 0 20px #eab30860, 0 4px 12px rgba(0,0,0,0.3)',
-                    border: 'none',
-                  }}
-                  whileHover={{ scale: 1.04 }}
-                  whileTap={{ scale: 0.96 }}
-                  transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-                >
-                  <AnimatePresence mode="wait">
-                    {isExecuting ? (
-                      <motion.span
-                        key="exec"
-                        className="flex items-center gap-2.5"
-                        initial={{ opacity: 0, y: 4 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -4 }}
-                      >
-                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        Executing...
-                      </motion.span>
-                    ) : (
-                      <motion.span
-                        key="idle"
-                        className="flex items-center gap-2.5"
-                        initial={{ opacity: 0, y: 4 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -4 }}
-                      >
-                        <Play size={16} fill="white" />
-                        Execute Mapping
-                      </motion.span>
-                    )}
-                  </AnimatePresence>
-                </motion.button>
+              <div className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--color-text-secondary)' }}>
+                <span style={{ opacity: 0.6 }}>Engine</span>
+                <span style={{ color: isXslt ? '#06b6d4' : '#22c55e', fontWeight: 600 }}>
+                  {isXslt ? 'XSLT 1.0' : 'Groovy (JS Mock)'}
+                </span>
               </div>
+
+              <motion.button
+                onClick={handleExecute}
+                disabled={isExecuting}
+                className="relative flex items-center gap-2 px-6 py-2.5 rounded-xl font-semibold text-white text-[12.5px] cursor-pointer disabled:cursor-wait border-none overflow-hidden"
+                style={{
+                  background: isXslt
+                    ? 'linear-gradient(135deg, #06b6d4, #0891b2)'
+                    : 'linear-gradient(135deg, #22c55e, #16a34a)',
+                  boxShadow: isXslt
+                    ? '0 8px 24px rgba(6,182,212,0.35), inset 0 1px 0 rgba(255,255,255,0.18)'
+                    : '0 8px 24px rgba(34,197,94,0.35), inset 0 1px 0 rgba(255,255,255,0.18)',
+                }}
+                whileHover={!isExecuting ? { scale: 1.02 } : {}}
+                whileTap={!isExecuting ? { scale: 0.98 } : {}}
+                transition={{ type: 'spring', stiffness: 380, damping: 28 }}
+              >
+                <div
+                  className="absolute inset-0 opacity-50 pointer-events-none"
+                  style={{ background: 'radial-gradient(circle at 30% 0%, rgba(255,255,255,0.18), transparent 60%)' }}
+                />
+                <AnimatePresence mode="wait">
+                  {isExecuting ? (
+                    <motion.span
+                      key="exec"
+                      className="relative flex items-center gap-2"
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                    >
+                      <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Executing…
+                    </motion.span>
+                  ) : (
+                    <motion.span
+                      key="idle"
+                      className="relative flex items-center gap-2"
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                    >
+                      <Play size={13} fill="white" />
+                      Execute Mapping
+                    </motion.span>
+                  )}
+                </AnimatePresence>
+              </motion.button>
             </div>
           </motion.div>
         </motion.div>

@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useState } from 'react'
-import { ReactFlow, Background, Controls, MiniMap, useReactFlow, MarkerType } from '@xyflow/react'
+import { ReactFlow, Background, Controls, MiniMap, Panel, useReactFlow, MarkerType } from '@xyflow/react'
 import { motion } from 'framer-motion'
-import { Plus } from 'lucide-react'
+import { Plus, Trash2, Braces } from 'lucide-react'
+import UdfManagerModal from '../ui/UdfManagerModal'
 import '@xyflow/react/dist/style.css'
 import useAppStore from '../../store/useAppStore'
 import PayloadTreeNode from './PayloadTreeNode'
@@ -21,6 +22,9 @@ const INITIAL_GHOST = { active: false, nodes: [], edges: [], description: '' }
 export default function FlowCanvas() {
   const nodes = useAppStore((s) => s.nodes)
   const edges = useAppStore((s) => s.edges)
+  const clearMappings = useAppStore((s) => s.clearMappings)
+  const udfCount = useAppStore((s) => s.udfs.length)
+  const [udfOpen, setUdfOpen] = useState(false)
   const [ghostState, setGhostState] = useState(INITIAL_GHOST)
   const onNodesChange = useAppStore((s) => s.onNodesChange)
   const onEdgesChange = useAppStore((s) => s.onEdgesChange)
@@ -303,6 +307,62 @@ export default function FlowCanvas() {
             borderRadius: 8,
           }}
         />
+        <Panel position="top-left">
+          <button
+            onClick={() => setUdfOpen(true)}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-md text-[11px] font-semibold uppercase tracking-wider cursor-pointer transition-all duration-200"
+            style={{
+              backgroundColor: 'rgba(76,29,149,0.2)',
+              border: '1px solid rgba(168,85,247,0.25)',
+              color: '#c4b5fd',
+              backdropFilter: 'blur(8px)',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = 'rgba(76,29,149,0.4)'
+              e.currentTarget.style.borderColor = 'rgba(168,85,247,0.5)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'rgba(76,29,149,0.2)'
+              e.currentTarget.style.borderColor = 'rgba(168,85,247,0.25)'
+            }}
+          >
+            <Braces size={12} />
+            UDF Library
+            {udfCount > 0 && (
+              <span
+                className="text-[9px] px-1.5 py-0.5 rounded-md font-bold"
+                style={{ backgroundColor: 'rgba(168,85,247,0.25)', color: '#e9d5ff' }}
+              >
+                {udfCount}
+              </span>
+            )}
+          </button>
+        </Panel>
+        <Panel position="top-right">
+          <button
+            onClick={clearMappings}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-md text-[11px] font-semibold uppercase tracking-wider cursor-pointer transition-all duration-200"
+            style={{
+              backgroundColor: 'rgba(127,29,29,0.2)',
+              border: '1px solid rgba(239,68,68,0.25)',
+              color: '#f87171',
+              backdropFilter: 'blur(8px)',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = 'rgba(127,29,29,0.4)'
+              e.currentTarget.style.borderColor = 'rgba(239,68,68,0.5)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'rgba(127,29,29,0.2)'
+              e.currentTarget.style.borderColor = 'rgba(239,68,68,0.25)'
+            }}
+          >
+            <Trash2 size={12} />
+            Clear Mappings
+          </button>
+        </Panel>
       </ReactFlow>
 
       {/* FAB Button — positioned above MiniMap to avoid overlap */}
@@ -339,6 +399,9 @@ export default function FlowCanvas() {
         onSelect={onPaletteSelect}
         onClose={closePalette}
       />
+
+      {/* UDF Library Modal */}
+      <UdfManagerModal open={udfOpen} onClose={() => setUdfOpen(false)} />
     </>
   )
 }

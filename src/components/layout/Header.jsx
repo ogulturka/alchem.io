@@ -1,73 +1,41 @@
-import { useState } from 'react'
-import { FlaskConical, Trash2, Braces } from 'lucide-react'
+import { FlaskConical } from 'lucide-react'
 import ThemeSwitcher from '../ui/ThemeSwitcher'
-import UdfManagerModal from '../ui/UdfManagerModal'
-import useAppStore from '../../store/useAppStore'
 
 export default function Header() {
-  const clearMappings = useAppStore((s) => s.clearMappings)
-  const udfCount = useAppStore((s) => s.udfs.length)
-  const [udfOpen, setUdfOpen] = useState(false)
-
   return (
-    <header className="h-16 flex-shrink-0 flex items-center justify-between px-8 bg-bg-secondary border-b border-border">
-      <div className="flex items-center gap-3">
-        <FlaskConical size={24} className="text-accent" />
-        <h1 className="text-xl font-bold bg-gradient-to-r from-accent to-accent-glow bg-clip-text text-transparent">
-          Alchem.io
+    <header
+      className="h-14 flex-shrink-0 flex items-center justify-between px-6 border-b"
+      style={{
+        backgroundColor: 'var(--color-bg-secondary)',
+        borderColor: 'var(--color-border)',
+      }}
+    >
+      {/* Logo */}
+      <div className="flex items-center gap-2.5">
+        <div
+          className="flex items-center justify-center rounded-lg"
+          style={{
+            width: 32,
+            height: 32,
+            background: 'linear-gradient(135deg, rgba(168,85,247,0.15), rgba(168,85,247,0.05))',
+            border: '1px solid rgba(168,85,247,0.25)',
+            boxShadow: '0 0 12px rgba(168,85,247,0.15)',
+          }}
+        >
+          <FlaskConical size={16} className="text-accent" />
+        </div>
+        <h1 className="text-base font-semibold tracking-tight">
+          <span className="bg-gradient-to-r from-accent to-accent-glow bg-clip-text text-transparent">
+            Alchem
+          </span>
+          <span style={{ color: 'var(--color-text-secondary)' }}>.io</span>
         </h1>
       </div>
-      <div className="flex items-center gap-3">
-        <button
-          onClick={() => setUdfOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-[11px] font-semibold uppercase tracking-wider cursor-pointer transition-all duration-200"
-          style={{
-            backgroundColor: 'rgba(168,85,247,0.08)',
-            border: '1px solid rgba(168,85,247,0.2)',
-            color: 'var(--color-accent)',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = 'rgba(168,85,247,0.15)'
-            e.currentTarget.style.borderColor = 'rgba(168,85,247,0.4)'
-            e.currentTarget.style.boxShadow = '0 0 12px rgba(168,85,247,0.2)'
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = 'rgba(168,85,247,0.08)'
-            e.currentTarget.style.borderColor = 'rgba(168,85,247,0.2)'
-            e.currentTarget.style.boxShadow = 'none'
-          }}
-        >
-          <Braces size={13} />
-          UDF Library
-          {udfCount > 0 && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded-md" style={{ backgroundColor: 'rgba(168,85,247,0.2)' }}>{udfCount}</span>
-          )}
-        </button>
-        <button
-          onClick={clearMappings}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-[11px] font-semibold uppercase tracking-wider cursor-pointer transition-all duration-200"
-          style={{
-            backgroundColor: 'rgba(239,68,68,0.08)',
-            border: '1px solid rgba(239,68,68,0.2)',
-            color: '#ef4444',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.15)'
-            e.currentTarget.style.borderColor = 'rgba(239,68,68,0.4)'
-            e.currentTarget.style.boxShadow = '0 0 12px rgba(239,68,68,0.2)'
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.08)'
-            e.currentTarget.style.borderColor = 'rgba(239,68,68,0.2)'
-            e.currentTarget.style.boxShadow = 'none'
-          }}
-        >
-          <Trash2 size={13} />
-          Clear Mappings
-        </button>
+
+      {/* Right Actions */}
+      <div className="flex items-center">
         <ThemeSwitcher />
       </div>
-      <UdfManagerModal open={udfOpen} onClose={() => setUdfOpen(false)} />
     </header>
   )
 }
