@@ -1,6 +1,6 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { FileCode, FileJson, RefreshCw, AlertCircle, ArrowRightLeft, Mail, PanelLeftClose, Code, LayoutGrid, ChevronDown, Upload } from 'lucide-react'
+import { FileCode, FileJson, RefreshCw, AlertCircle, ArrowRightLeft, Mail, PanelLeftClose, Code, LayoutGrid, ChevronDown, Upload, Copy, Check } from 'lucide-react'
 import CodeEditor from '../editors/CodeEditor'
 import SchemaBuilderTree from '../editors/SchemaBuilderTree'
 import useAppStore from '../../store/useAppStore'
@@ -181,6 +181,100 @@ function SyncButton({ onClick, error }) {
       )}
       Sync
     </motion.button>
+  )
+}
+
+function CodeOverlay({ value, onSync, syncError }) {
+  const [copied, setCopied] = useState(false)
+  const [spinning, setSpinning] = useState(false)
+
+  const handleCopy = useCallback(() => {
+    if (!value) return
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1800)
+    })
+  }, [value])
+
+  const handleSync = useCallback(() => {
+    onSync?.()
+    if (!syncError) {
+      setSpinning(true)
+      setTimeout(() => setSpinning(false), 600)
+    }
+  }, [onSync, syncError])
+
+  return (
+    <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+      {/* Sync */}
+      <motion.button
+        onClick={handleSync}
+        title={syncError || 'Parse & sync to canvas'}
+        className="flex items-center justify-center rounded-md cursor-pointer border-none"
+        style={{
+          width: 28,
+          height: 28,
+          backgroundColor: syncError ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.05)',
+          backdropFilter: 'blur(8px)',
+          border: syncError
+            ? '1px solid rgba(239,68,68,0.3)'
+            : '1px solid rgba(255,255,255,0.08)',
+          color: syncError ? '#f87171' : 'var(--color-text-secondary)',
+          transition: 'all 0.15s',
+        }}
+        whileHover={{
+          scale: 1.08,
+          backgroundColor: syncError ? 'rgba(239,68,68,0.25)' : 'rgba(168,85,247,0.15)',
+          color: syncError ? '#f87171' : '#c4b5fd',
+        }}
+        whileTap={{ scale: 0.94 }}
+      >
+        {syncError ? (
+          <AlertCircle size={13} />
+        ) : (
+          <motion.div animate={spinning ? { rotate: 360 } : { rotate: 0 }} transition={{ duration: 0.5, ease: 'easeInOut' }}>
+            <RefreshCw size={13} />
+          </motion.div>
+        )}
+      </motion.button>
+
+      {/* Copy */}
+      <motion.button
+        onClick={handleCopy}
+        disabled={!value}
+        title={copied ? 'Copied!' : 'Copy to clipboard'}
+        className="flex items-center justify-center rounded-md cursor-pointer border-none disabled:opacity-30 disabled:cursor-default"
+        style={{
+          width: 28,
+          height: 28,
+          backgroundColor: copied ? 'rgba(34,197,94,0.18)' : 'rgba(255,255,255,0.05)',
+          backdropFilter: 'blur(8px)',
+          border: copied
+            ? '1px solid rgba(34,197,94,0.35)'
+            : '1px solid rgba(255,255,255,0.08)',
+          color: copied ? '#22c55e' : 'var(--color-text-secondary)',
+          transition: 'all 0.15s',
+        }}
+        whileHover={{
+          scale: 1.08,
+          backgroundColor: copied ? 'rgba(34,197,94,0.25)' : 'rgba(168,85,247,0.15)',
+          color: copied ? '#22c55e' : '#c4b5fd',
+        }}
+        whileTap={{ scale: 0.94 }}
+      >
+        <AnimatePresence mode="wait">
+          {copied ? (
+            <motion.div key="check" initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0, opacity: 0 }} transition={{ duration: 0.15 }}>
+              <Check size={13} strokeWidth={2.6} />
+            </motion.div>
+          ) : (
+            <motion.div key="copy" initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0, opacity: 0 }} transition={{ duration: 0.15 }}>
+              <Copy size={13} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.button>
+    </div>
   )
 }
 
@@ -458,18 +552,19 @@ export default function LeftPanel({ onCollapse }) {
           <FormatDropdown value={sourceFormat} onChange={setSourceFormat} />
           <ToolbarDivider />
           <ImportButton onImport={handleSourceImport} />
-          <ToolbarDivider />
-          <SyncButton onClick={syncSourceTree} error={parseError.source} />
         </PanelHeader>
         <ConversionToast error={conversionError.source} />
         {showSourceEnvelope && <SoapEnvelopeHint position="top" />}
         <div className="flex-1 min-h-0 relative overflow-hidden">
           {sourceView === 'code' ? (
-            <CodeEditor
-              value={requestCode}
-              onChange={handleSourceCodeChange}
-              language={sourceFormat === 'json' ? 'json' : 'xml'}
-            />
+            <>
+              <CodeEditor
+                value={requestCode}
+                onChange={handleSourceCodeChange}
+                language={sourceFormat === 'json' ? 'json' : 'xml'}
+              />
+              <CodeOverlay value={requestCode} onSync={syncSourceTree} syncError={parseError.source} />
+            </>
           ) : (
             <SchemaBuilderTree
               schema={sourceSchema}
@@ -496,18 +591,19 @@ export default function LeftPanel({ onCollapse }) {
           <FormatDropdown value={targetFormat} onChange={setTargetFormat} />
           <ToolbarDivider />
           <ImportButton onImport={handleTargetImport} />
-          <ToolbarDivider />
-          <SyncButton onClick={syncTargetTree} error={parseError.target} />
         </PanelHeader>
         <ConversionToast error={conversionError.target} />
         {showTargetEnvelope && <SoapEnvelopeHint position="top" />}
         <div className="flex-1 min-h-0 relative overflow-hidden">
           {targetView === 'code' ? (
-            <CodeEditor
-              value={responseStructure}
-              onChange={handleTargetCodeChange}
-              language={targetFormat === 'json' ? 'json' : 'xml'}
-            />
+            <>
+              <CodeEditor
+                value={responseStructure}
+                onChange={handleTargetCodeChange}
+                language={targetFormat === 'json' ? 'json' : 'xml'}
+              />
+              <CodeOverlay value={responseStructure} onSync={syncTargetTree} syncError={parseError.target} />
+            </>
           ) : (
             <SchemaBuilderTree
               schema={targetSchema}

@@ -392,14 +392,25 @@ const useAppStore = create((set, get) => ({
   alchemize: () => {
     set({ isGenerating: true })
     setTimeout(() => {
-      const { nodes, edges, sourceFormat, targetFormat, groovyPlatform, isSourceSoap, isTargetSoap, requestCode } = get()
-      const soapFlags = { isSourceSoap, isTargetSoap }
-      const xslt = generateXSLT(nodes, edges, sourceFormat, targetFormat, soapFlags, requestCode)
-      const groovy = generateGroovy(nodes, edges, sourceFormat, targetFormat, groovyPlatform, soapFlags)
-      set({
-        isGenerating: false,
-        generatedCode: { xslt, groovy },
-      })
+      try {
+        const { nodes, edges, sourceFormat, targetFormat, groovyPlatform, isSourceSoap, isTargetSoap, requestCode } = get()
+        const soapFlags = { isSourceSoap, isTargetSoap }
+        const xslt = generateXSLT(nodes, edges, sourceFormat, targetFormat, soapFlags, requestCode)
+        const groovy = generateGroovy(nodes, edges, sourceFormat, targetFormat, groovyPlatform, soapFlags)
+        set({
+          isGenerating: false,
+          generatedCode: { xslt, groovy },
+        })
+      } catch (err) {
+        console.error('[Alchem.io] Code generation failed:', err)
+        set({
+          isGenerating: false,
+          generatedCode: {
+            xslt: `<!-- Code generation error:\n${err?.message || err}\n-->`,
+            groovy: `// Code generation error:\n// ${err?.message || err}`,
+          },
+        })
+      }
     }, 800)
   },
 }))

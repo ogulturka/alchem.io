@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import useAppStore from './store/useAppStore'
+import useWorkspaceStore from './store/workspaceStore'
 import Header from './components/layout/Header'
 import LeftPanel from './components/layout/LeftPanel'
 import MiddlePanel from './components/layout/MiddlePanel'

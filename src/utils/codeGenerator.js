@@ -633,13 +633,14 @@ function groovyTransformExpr(accessor, operation, nodeData) {
   }
 }
 
-function buildGroovyAccessor(dotPath, sourceFormat, sourceRootTag) {
-  const chain = dotToGroovyChain(dotPath)
+function buildGroovyAccessor(dotPath, sourceFormat) {
   if (sourceFormat === 'xml') {
-    // XmlSlurper parses from root, so we use src.path.text()
-    // If root was unwrapped (XML), the path starts after root, so accessor is correct
-    return `src.${chain}.text()`
+    // Namespace-agnostic lookup: strip prefixes, use _findByLocal helper
+    const segs = dotPath.split('.').map((s) => s.includes(':') ? s.split(':').pop() : s)
+    const list = segs.map((s) => `'${s}'`).join(', ')
+    return `(_findByLocal(src, [${list}])?.text() ?: '')`
   }
+  const chain = dotToGroovyChain(dotPath)
   return `src.${chain}`
 }
 
@@ -703,9 +704,22 @@ export function generateGroovy(nodes, edges, sourceFormat, targetFormat, platfor
   } else {
     lines.push('    // Parse source XML')
     lines.push('    def srcRaw = new XmlSlurper().parseText(body)')
+    lines.push('')
+    lines.push('    // Namespace-agnostic field lookup (mirrors XSLT local-name() behavior)')
+    lines.push('    def _findByLocal')
+    lines.push('    _findByLocal = { root, pathList ->')
+    lines.push('        def current = root')
+    lines.push('        for (name in pathList) {')
+    lines.push('            if (current == null) break')
+    lines.push("            current = current.children().find { it?.name()?.toString()?.replaceAll(/^[^:]+:/, '') == name }")
+    lines.push('        }')
+    lines.push('        current')
+    lines.push('    }')
     if (isSourceSoap) {
-      lines.push('    // Unwrap SOAP Envelope — navigate into Body\'s first child')
-      lines.push("    def src = srcRaw.Body.children()[0]")
+      lines.push('')
+      lines.push('    // Unwrap SOAP Envelope — find <Body> regardless of namespace prefix')
+      lines.push("    def _bodyEl = _findByLocal(srcRaw, ['Body'])")
+      lines.push('    def src = _bodyEl?.children()?.getAt(0) ?: srcRaw')
     } else {
       lines.push('    def src = srcRaw')
     }
@@ -855,14 +869,18 @@ export function generateGroovy(nodes, edges, sourceFormat, targetFormat, platfor
     if (!sp) return '""'
     if (sp.startsWith(srcArrayPath + '.')) {
       const relField = sp.slice(srcArrayPath.length + 1)
-      const localName = relField.includes(':') ? relField.split(':').pop() : relField
       if (sourceFormat === 'xml') {
-        return `${loopVar}.'**'.find { it.name() == '${localName}' }?.text() ?: ''`
+        // Namespace-agnostic lookup relative to the loop item
+        const segs = relField.split('.').map((s) => s.includes(':') ? s.split(':').pop() : s)
+        const list = segs.map((s) => `'${s}'`).join(', ')
+        return `(_findByLocal(${loopVar}, [${list}])?.text() ?: '')`
       }
       return `${loopVar}.${relField}`
     }
     return buildGroovyAccessor(sp, sourceFormat)
   }
+
+  const isJsonTarget = targetFormat === 'json'
 
   function renderGroovyTree(tree, indent, currentPath, loopContext) {
     for (const [key, val] of Object.entries(tree)) {
@@ -872,9 +890,17 @@ export function generateGroovy(nodes, edges, sourceFormat, targetFormat, platfor
         if (loopContext && val.__mapping) {
           // Inside a loop — use inline accessor relative to loop variable
           const expr = groovyInlineAccessor(val.__mapping, loopContext.loopVar, loopContext.srcArrayPath)
-          lines.push(`${indent}'${key}'(${expr})`)
+          lines.push(
+            isJsonTarget
+              ? `${indent}"${key}" ${expr}`
+              : `${indent}'${key}'(${expr})`
+          )
         } else {
-          lines.push(`${indent}${key}(${val.varName})`)
+          lines.push(
+            isJsonTarget
+              ? `${indent}"${key}" ${val.varName}`
+              : `${indent}${key}(${val.varName})`
+          )
         }
       } else {
         const children = val.__children || val
@@ -886,7 +912,8 @@ export function generateGroovy(nodes, edges, sourceFormat, targetFormat, platfor
             const srcLocalName = srcArrayPath.split('.').pop()
             const localName = srcLocalName.includes(':') ? srcLocalName.split(':').pop() : srcLocalName
             const loopVar = 'item'
-            lines.push(`${indent}src.'**'.findAll { it.name() == '${localName}' }.each { ${loopVar} ->`)
+            // Namespace-agnostic deep findAll: strip any xmlns prefix before comparing
+            lines.push(`${indent}src.'**'.findAll { it?.name()?.toString()?.replaceAll(/^[^:]+:/, '') == '${localName}' }.each { ${loopVar} ->`)
             lines.push(`${indent}    '${key}' {`)
             renderGroovyTree(children, indent + '        ', nodePath, { loopVar, srcArrayPath })
             lines.push(`${indent}    }`)

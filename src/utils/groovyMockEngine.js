@@ -27,6 +27,10 @@ function xmlToJsObject(xmlString) {
   const error = doc.querySelector('parsererror')
   if (error) throw new Error(`XML Parse Error: ${error.textContent}`)
 
+  // Strip namespace prefix so downstream access is namespace-agnostic
+  // (mirrors the generator's use of local-name() / _findByLocal)
+  const stripPrefix = (name) => name.replace(/^[^:]+:/, '')
+
   function nodeToObj(node) {
     const children = Array.from(node.children)
     if (children.length === 0) {
@@ -34,8 +38,14 @@ function xmlToJsObject(xmlString) {
     }
     const obj = {}
     for (const child of children) {
-      const key = child.tagName
-      obj[key] = nodeToObj(child)
+      const key = stripPrefix(child.tagName)
+      const value = nodeToObj(child)
+      if (key in obj) {
+        if (!Array.isArray(obj[key])) obj[key] = [obj[key]]
+        obj[key].push(value)
+      } else {
+        obj[key] = value
+      }
     }
     return obj
   }
@@ -173,7 +183,21 @@ function evaluateExpression(expr, src, variables) {
 }
 
 function resolveAccessor(expr, src, variables) {
-  const trimmed = expr.trim()
+  let trimmed = expr.trim()
+
+  // Unwrap outer parentheses — e.g. "(expr ?: '')" or "(expr)"
+  if (trimmed.startsWith('(') && trimmed.endsWith(')')) {
+    // Make sure the parens are truly outer, not part of a function call
+    let depth = 0, balanced = true
+    for (let i = 0; i < trimmed.length; i++) {
+      if (trimmed[i] === '(') depth++
+      else if (trimmed[i] === ')') { depth--; if (depth === 0 && i < trimmed.length - 1) { balanced = false; break } }
+    }
+    if (balanced) trimmed = trimmed.slice(1, -1).trim()
+  }
+
+  // Strip trailing `?: ''` (Elvis operator with empty fallback)
+  trimmed = trimmed.replace(/\s*\?\:\s*['"][^'"]*['"]\s*$/, '').trim()
 
   // String literal
   if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
@@ -198,11 +222,34 @@ function resolveAccessor(expr, src, variables) {
   // Variable reference
   if (variables.has(trimmed)) return variables.get(trimmed)
 
+  // _findByLocal(root, ['A', 'B', 'C'])?.text()
+  const findByLocalMatch = trimmed.match(/^_findByLocal\(\s*(\w+)\s*,\s*\[([^\]]+)\]\s*\)(\?\.text\(\))?(\?\.toString\(\))?$/)
+  if (findByLocalMatch) {
+    const rootVar = findByLocalMatch[1]
+    const segs = findByLocalMatch[2]
+      .split(',')
+      .map((s) => s.trim().replace(/^['"]|['"]$/g, ''))
+    const rootObj = rootVar === 'src' ? src : variables.get(rootVar)
+    if (!rootObj) return ''
+    const resolved = resolvePath(rootObj, segs.join('.'))
+    return resolved ?? ''
+  }
+
   // Strip .text() suffix (XML accessor)
-  let path = trimmed.replace(/\.text\(\)$/, '')
+  let path = trimmed.replace(/\?\.text\(\)$/, '').replace(/\.text\(\)$/, '')
 
   // Strip .toString() suffix
-  path = path.replace(/\.toString\(\)$/, '')
+  path = path.replace(/\?\.toString\(\)$/, '').replace(/\.toString\(\)$/, '')
+
+  // Try _findByLocal after stripping suffixes (e.g. inside toUpperCase chain)
+  const fblAfterStrip = path.match(/^_findByLocal\(\s*(\w+)\s*,\s*\[([^\]]+)\]\s*\)$/)
+  if (fblAfterStrip) {
+    const rootVar = fblAfterStrip[1]
+    const segs = fblAfterStrip[2].split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, ''))
+    const rootObj = rootVar === 'src' ? src : variables.get(rootVar)
+    if (!rootObj) return ''
+    return resolvePath(rootObj, segs.join('.')) ?? ''
+  }
 
   // src.A.B.C → resolve on source object
   if (path.startsWith('src.')) {
@@ -344,11 +391,16 @@ export function executeGroovyMock(inputPayload, groovyScript, sourceFormat, soap
           line.startsWith('import ') || line.startsWith('def Message') ||
           line.startsWith('def Exchange') || line.startsWith('public void') ||
           line.startsWith('def body') || line.startsWith('def src') ||
+          line.startsWith('def srcRaw') || line.startsWith('def _bodyEl') ||
+          line.startsWith('def _findByLocal') || line.startsWith('_findByLocal =') ||
           line.startsWith('message.') || line.startsWith('exchange.') ||
           line.startsWith('return ') || line.startsWith('def os ') ||
           line.startsWith('os.write') || line.startsWith('def writer') ||
           line.startsWith('xml.mkp') ||
-          line === '{' || line === '}') {
+          line === '{' || line === '}' ||
+          line.startsWith('for (') || line.startsWith('if (') ||
+          line.startsWith('current ') || line === 'current' ||
+          line.startsWith('}')) {
         continue
       }
 
