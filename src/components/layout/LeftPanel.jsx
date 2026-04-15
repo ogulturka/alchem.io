@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { FileCode, FileJson, RefreshCw, AlertCircle, ArrowRightLeft, Mail, PanelLeftClose, Code, LayoutGrid, ChevronDown } from 'lucide-react'
+import { FileCode, FileJson, RefreshCw, AlertCircle, ArrowRightLeft, Mail, PanelLeftClose, Code, LayoutGrid, ChevronDown, Upload } from 'lucide-react'
 import CodeEditor from '../editors/CodeEditor'
 import SchemaBuilderTree from '../editors/SchemaBuilderTree'
 import useAppStore from '../../store/useAppStore'
 import { parsePayloadToSchema, generatePayloadFromSchema } from '../../utils/schemaGenerator'
+import { detectSchemaFormat } from '../../utils/xsdWsdlParser'
 
 const TOOLBAR_HEIGHT = 26
 
@@ -32,6 +33,8 @@ function FormatDropdown({ value, onChange }) {
       >
         <option value="xml" style={{ backgroundColor: 'var(--color-bg-secondary)' }}>XML</option>
         <option value="json" style={{ backgroundColor: 'var(--color-bg-secondary)' }}>JSON</option>
+        <option value="xsd" style={{ backgroundColor: 'var(--color-bg-secondary)' }}>XSD</option>
+        <option value="wsdl" style={{ backgroundColor: 'var(--color-bg-secondary)' }}>WSDL</option>
       </select>
       <ChevronDown
         size={10}
@@ -67,6 +70,69 @@ function SoapToggleButton({ active, onClick, label }) {
       <Mail size={10} style={{ opacity: active ? 1 : 0.55 }} />
       SOAP
     </motion.button>
+  )
+}
+
+function ImportButton({ onImport }) {
+  const inputRef = useRef(null)
+
+  const handleClick = () => inputRef.current?.click()
+
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const content = String(ev.target?.result || '')
+      // Derive format from file extension as a hint
+      const ext = file.name.split('.').pop()?.toLowerCase() || ''
+      const formatHint = ['xml', 'json', 'xsd', 'wsdl'].includes(ext) ? ext : null
+      onImport(content, formatHint)
+    }
+    reader.readAsText(file)
+
+    // Reset so the same file can be re-imported
+    e.target.value = ''
+  }
+
+  return (
+    <>
+      <motion.button
+        onClick={handleClick}
+        title="Import from file (XML, JSON, XSD, WSDL)"
+        className="flex items-center gap-1.5 rounded-md text-[10px] font-semibold cursor-pointer border-none"
+        style={{
+          height: TOOLBAR_HEIGHT,
+          padding: '0 8px',
+          backgroundColor: 'transparent',
+          color: 'var(--color-text-secondary)',
+          border: '1px solid transparent',
+          transition: 'all 0.15s',
+        }}
+        whileTap={{ scale: 0.96 }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.backgroundColor = 'rgba(168,85,247,0.1)'
+          e.currentTarget.style.color = '#c4b5fd'
+          e.currentTarget.style.borderColor = 'rgba(168,85,247,0.2)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor = 'transparent'
+          e.currentTarget.style.color = 'var(--color-text-secondary)'
+          e.currentTarget.style.borderColor = 'transparent'
+        }}
+      >
+        <Upload size={10} />
+        Import
+      </motion.button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".xml,.json,.xsd,.wsdl,application/xml,application/json,text/xml,text/plain"
+        onChange={handleFileChange}
+        style={{ display: 'none' }}
+      />
+    </>
   )
 }
 
@@ -285,6 +351,48 @@ export default function LeftPanel({ onCollapse }) {
   const [sourceSchema, setSourceSchema] = useState([])
   const [targetSchema, setTargetSchema] = useState([])
 
+  // Auto-detect XSD/WSDL when user pastes new content and auto-switch format
+  const handleSourceCodeChange = (val) => {
+    setRequestCode(val)
+    const detected = detectSchemaFormat(val)
+    if (detected && detected !== sourceFormat) {
+      setSourceFormat(detected)
+    }
+  }
+
+  const handleTargetCodeChange = (val) => {
+    setResponseStructure(val)
+    const detected = detectSchemaFormat(val)
+    if (detected && detected !== targetFormat) {
+      setTargetFormat(detected)
+    }
+  }
+
+  // File import: set content + auto-detect format, then sync canvas
+  const inferFormat = (content, hint) => {
+    const detected = detectSchemaFormat(content)
+    if (detected) return detected
+    if (hint === 'xsd' || hint === 'wsdl') return hint
+    const trimmed = (content || '').trim()
+    if (trimmed.startsWith('<')) return 'xml'
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) return 'json'
+    return hint || 'xml'
+  }
+
+  const handleSourceImport = (content, hint) => {
+    const fmt = inferFormat(content, hint)
+    setRequestCode(content)
+    if (fmt !== sourceFormat) setSourceFormat(fmt)
+    setTimeout(() => syncSourceTree(), 50)
+  }
+
+  const handleTargetImport = (content, hint) => {
+    const fmt = inferFormat(content, hint)
+    setResponseStructure(content)
+    if (fmt !== targetFormat) setTargetFormat(fmt)
+    setTimeout(() => syncTargetTree(), 50)
+  }
+
   // Switching to Design view → auto-import the current payload into the schema builder
   const handleSourceViewChange = (newView) => {
     if (newView === 'design' && requestCode && requestCode.trim()) {
@@ -349,6 +457,8 @@ export default function LeftPanel({ onCollapse }) {
           <ToolbarDivider />
           <FormatDropdown value={sourceFormat} onChange={setSourceFormat} />
           <ToolbarDivider />
+          <ImportButton onImport={handleSourceImport} />
+          <ToolbarDivider />
           <SyncButton onClick={syncSourceTree} error={parseError.source} />
         </PanelHeader>
         <ConversionToast error={conversionError.source} />
@@ -357,8 +467,8 @@ export default function LeftPanel({ onCollapse }) {
           {sourceView === 'code' ? (
             <CodeEditor
               value={requestCode}
-              onChange={setRequestCode}
-              language={sourceFormat === 'xml' ? 'xml' : 'json'}
+              onChange={handleSourceCodeChange}
+              language={sourceFormat === 'json' ? 'json' : 'xml'}
             />
           ) : (
             <SchemaBuilderTree
@@ -385,6 +495,8 @@ export default function LeftPanel({ onCollapse }) {
           <ToolbarDivider />
           <FormatDropdown value={targetFormat} onChange={setTargetFormat} />
           <ToolbarDivider />
+          <ImportButton onImport={handleTargetImport} />
+          <ToolbarDivider />
           <SyncButton onClick={syncTargetTree} error={parseError.target} />
         </PanelHeader>
         <ConversionToast error={conversionError.target} />
@@ -393,8 +505,8 @@ export default function LeftPanel({ onCollapse }) {
           {targetView === 'code' ? (
             <CodeEditor
               value={responseStructure}
-              onChange={setResponseStructure}
-              language={targetFormat === 'xml' ? 'xml' : 'json'}
+              onChange={handleTargetCodeChange}
+              language={targetFormat === 'json' ? 'json' : 'xml'}
             />
           ) : (
             <SchemaBuilderTree

@@ -196,12 +196,21 @@ const useAppStore = create((set, get) => ({
   conversionError: { source: null, target: null },
 
   setSourceFormat: (newFormat) => {
-    const { sourceFormat: oldFormat, requestCode } = get()
+    const { sourceFormat: oldFormat } = get()
     if (oldFormat === newFormat) return
+
+    // XSD/WSDL are schema definition formats — no content conversion, just switch
+    const isSchemaFormat = (f) => f === 'xsd' || f === 'wsdl'
+    if (isSchemaFormat(newFormat) || isSchemaFormat(oldFormat)) {
+      set({ sourceFormat: newFormat, conversionError: { ...get().conversionError, source: null } })
+      setTimeout(() => get().syncSourceTree(), 0)
+      return
+    }
+
+    const { requestCode } = get()
     const result = convertPayload(requestCode, oldFormat, newFormat)
     if (result.error) {
       console.warn('[Alchem.io] Source conversion failed:', result.error)
-      // Don't change format on failure — keep format/content in sync
       set({ conversionError: { ...get().conversionError, source: result.error } })
     } else {
       set({ sourceFormat: newFormat, requestCode: result.text, conversionError: { ...get().conversionError, source: null } })
@@ -210,8 +219,17 @@ const useAppStore = create((set, get) => ({
   },
 
   setTargetFormat: (newFormat) => {
-    const { targetFormat: oldFormat, responseStructure } = get()
+    const { targetFormat: oldFormat } = get()
     if (oldFormat === newFormat) return
+
+    const isSchemaFormat = (f) => f === 'xsd' || f === 'wsdl'
+    if (isSchemaFormat(newFormat) || isSchemaFormat(oldFormat)) {
+      set({ targetFormat: newFormat, conversionError: { ...get().conversionError, target: null } })
+      setTimeout(() => get().syncTargetTree(), 0)
+      return
+    }
+
+    const { responseStructure } = get()
     const result = convertPayload(responseStructure, oldFormat, newFormat)
     if (result.error) {
       console.warn('[Alchem.io] Target conversion failed:', result.error)

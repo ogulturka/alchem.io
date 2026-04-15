@@ -12,11 +12,13 @@
  */
 
 import { parsePayload } from './payloadParser'
+import { parseXsdOrWsdl } from './xsdWsdlParser'
 
 const SAMPLES = {
   string: 'string',
   number: 0,
   boolean: false,
+  date: '2024-01-01',
 }
 
 function isMultiple(card) {
@@ -193,6 +195,19 @@ function payloadTreeNodeToSchema(treeNode) {
  */
 export function parsePayloadToSchema(text, format) {
   if (!text || !text.trim()) return { schema: [], error: null }
+
+  // XSD/WSDL: use dedicated parser that already produces proper schema shape
+  if (format === 'xsd' || format === 'wsdl') {
+    const { schema, error } = parseXsdOrWsdl(text, format)
+    if (error) return { schema: [], error }
+    // Re-generate ids so edits in the builder don't collide
+    const assignIds = (nodes) => nodes.map((n) => ({
+      ...n,
+      id: genId(),
+      children: n.children ? assignIds(n.children) : [],
+    }))
+    return { schema: assignIds(schema), error: null }
+  }
 
   const result = parsePayload(text, format)
   if (result.error) return { schema: [], error: result.error }

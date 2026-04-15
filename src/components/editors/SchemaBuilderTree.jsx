@@ -1,11 +1,12 @@
 import { useCallback, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Trash2, ChevronRight, ChevronDown, Sparkles, FileCode, Hash, ToggleLeft, FolderOpen, List } from 'lucide-react'
+import { Plus, Trash2, ChevronRight, ChevronDown, Sparkles, FileCode, Hash, ToggleLeft, FolderOpen, List, Calendar } from 'lucide-react'
 import { createEmptyNode, generatePayloadFromSchema } from '../../utils/schemaGenerator'
 
 const TYPES = [
   { id: 'string', label: 'String', icon: FileCode, color: '#22c55e' },
-  { id: 'number', label: 'Number', icon: Hash, color: '#f59e0b' },
+  { id: 'number', label: 'Integer', icon: Hash, color: '#f59e0b' },
+  { id: 'date', label: 'Date', icon: Calendar, color: '#0ea5e9' },
   { id: 'boolean', label: 'Boolean', icon: ToggleLeft, color: '#ef4444' },
   { id: 'object', label: 'Object', icon: FolderOpen, color: '#a78bfa' },
   { id: 'array', label: 'Array', icon: List, color: '#06b6d4' },
@@ -79,144 +80,150 @@ function SchemaRow({ node, depth, onUpdate, onDelete, onAddChild }) {
   return (
     <div>
       <div
-        className="group flex items-center gap-2 py-1.5 px-2 rounded-md transition-colors"
+        className="group flex items-center py-1 rounded-md transition-colors"
         style={{
-          paddingLeft: `${depth * 14 + 8}px`,
           backgroundColor: 'transparent',
-          minWidth: 'max-content',
         }}
         onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.025)' }}
         onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}
       >
-        {/* Expand/collapse */}
-        {canHaveChildren ? (
-          <button
-            onClick={() => setExpanded((v) => !v)}
-            className="flex items-center justify-center w-4 h-4 rounded cursor-pointer border-none flex-shrink-0"
-            style={{ backgroundColor: 'transparent', color: 'var(--color-text-secondary)' }}
-          >
-            {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-          </button>
-        ) : (
-          <span className="w-4 flex-shrink-0" />
-        )}
-
-        {/* Type icon */}
+        {/* ── LEFT: tree indent + name (flexible, can shrink) ── */}
         <div
-          className="flex items-center justify-center rounded flex-shrink-0"
-          style={{
-            width: 18,
-            height: 18,
-            backgroundColor: `${typeMeta.color}15`,
-            border: `1px solid ${typeMeta.color}30`,
-          }}
+          className="flex items-center gap-2 flex-1 min-w-0"
+          style={{ paddingLeft: `${depth * 14 + 8}px`, paddingRight: 8 }}
         >
-          <TypeIcon size={10} style={{ color: typeMeta.color }} />
+          {/* Expand/collapse */}
+          {canHaveChildren ? (
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className="flex items-center justify-center w-4 h-4 rounded cursor-pointer border-none flex-shrink-0"
+              style={{ backgroundColor: 'transparent', color: 'var(--color-text-secondary)' }}
+            >
+              {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+            </button>
+          ) : (
+            <span className="w-4 flex-shrink-0" />
+          )}
+
+          {/* Type icon */}
+          <div
+            className="flex items-center justify-center rounded flex-shrink-0"
+            style={{
+              width: 18,
+              height: 18,
+              backgroundColor: `${typeMeta.color}15`,
+              border: `1px solid ${typeMeta.color}30`,
+            }}
+          >
+            <TypeIcon size={10} style={{ color: typeMeta.color }} />
+          </div>
+
+          {/* Name input — shrinks to fit available space */}
+          <input
+            type="text"
+            value={node.name}
+            onChange={(e) => updateField('name', e.target.value)}
+            placeholder="fieldName"
+            title={node.name}
+            className="text-[12px] font-mono outline-none transition-colors px-2 py-1 rounded w-full min-w-0"
+            style={{
+              backgroundColor: 'rgba(255,255,255,0.03)',
+              border: '1px solid rgba(255,255,255,0.06)',
+              color: node.name ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+            }}
+            onFocus={(e) => {
+              e.target.style.borderColor = 'rgba(168,85,247,0.4)'
+              e.target.style.backgroundColor = 'rgba(168,85,247,0.04)'
+            }}
+            onBlur={(e) => {
+              e.target.style.borderColor = 'rgba(255,255,255,0.06)'
+              e.target.style.backgroundColor = 'rgba(255,255,255,0.03)'
+            }}
+          />
         </div>
 
-        {/* Name input */}
-        <input
-          type="text"
-          value={node.name}
-          onChange={(e) => updateField('name', e.target.value)}
-          placeholder="fieldName"
-          className="text-[12px] font-mono outline-none transition-colors px-2 py-1 rounded"
-          style={{
-            width: 220,
-            flexShrink: 0,
-            backgroundColor: 'rgba(255,255,255,0.03)',
-            border: '1px solid rgba(255,255,255,0.06)',
-            color: node.name ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-          }}
-          onFocus={(e) => {
-            e.target.style.borderColor = 'rgba(168,85,247,0.4)'
-            e.target.style.backgroundColor = 'rgba(168,85,247,0.04)'
-          }}
-          onBlur={(e) => {
-            e.target.style.borderColor = 'rgba(255,255,255,0.06)'
-            e.target.style.backgroundColor = 'rgba(255,255,255,0.03)'
-          }}
-        />
+        {/* ── RIGHT: type + cardinality + actions (always visible) ── */}
+        <div className="flex items-center gap-1.5 flex-shrink-0 pl-2 pr-2">
+          {/* Type select */}
+          <select
+            value={node.type}
+            onChange={(e) => updateField('type', e.target.value)}
+            className="text-[11px] cursor-pointer outline-none rounded px-1.5 py-1 flex-shrink-0"
+            style={{
+              backgroundColor: `${typeMeta.color}12`,
+              border: `1px solid ${typeMeta.color}25`,
+              color: typeMeta.color,
+              appearance: 'none',
+              paddingRight: '6px',
+              width: 80,
+            }}
+          >
+            {TYPES.map((t) => (
+              <option key={t.id} value={t.id} style={{ backgroundColor: 'var(--color-bg-secondary)', color: t.color }}>
+                {t.label}
+              </option>
+            ))}
+          </select>
 
-        {/* Type select */}
-        <select
-          value={node.type}
-          onChange={(e) => updateField('type', e.target.value)}
-          className="text-[11px] cursor-pointer outline-none rounded px-1.5 py-1 flex-shrink-0"
-          style={{
-            backgroundColor: `${typeMeta.color}12`,
-            border: `1px solid ${typeMeta.color}25`,
-            color: typeMeta.color,
-            appearance: 'none',
-            paddingRight: '6px',
-            width: 80,
-          }}
-        >
-          {TYPES.map((t) => (
-            <option key={t.id} value={t.id} style={{ backgroundColor: 'var(--color-bg-secondary)', color: t.color }}>
-              {t.label}
-            </option>
-          ))}
-        </select>
+          {/* Cardinality select */}
+          <select
+            value={node.cardinality}
+            onChange={(e) => updateField('cardinality', e.target.value)}
+            className="text-[10px] font-mono font-semibold cursor-pointer outline-none rounded px-1.5 py-1 flex-shrink-0"
+            style={{
+              backgroundColor: isMultiple(node.cardinality) ? 'rgba(6,182,212,0.1)' : 'rgba(255,255,255,0.04)',
+              border: isMultiple(node.cardinality) ? '1px solid rgba(6,182,212,0.25)' : '1px solid rgba(255,255,255,0.08)',
+              color: isMultiple(node.cardinality) ? '#06b6d4' : 'var(--color-text-secondary)',
+              appearance: 'none',
+              paddingRight: '6px',
+              width: 64,
+              textAlign: 'center',
+            }}
+            title={CARDINALITIES.find((c) => c.id === node.cardinality)?.desc}
+          >
+            {CARDINALITIES.map((c) => (
+              <option key={c.id} value={c.id} style={{ backgroundColor: 'var(--color-bg-secondary)' }}>
+                {c.label}
+              </option>
+            ))}
+          </select>
 
-        {/* Cardinality select */}
-        <select
-          value={node.cardinality}
-          onChange={(e) => updateField('cardinality', e.target.value)}
-          className="text-[10px] font-mono font-semibold cursor-pointer outline-none rounded px-1.5 py-1 flex-shrink-0"
-          style={{
-            backgroundColor: isMultiple(node.cardinality) ? 'rgba(6,182,212,0.1)' : 'rgba(255,255,255,0.04)',
-            border: isMultiple(node.cardinality) ? '1px solid rgba(6,182,212,0.25)' : '1px solid rgba(255,255,255,0.08)',
-            color: isMultiple(node.cardinality) ? '#06b6d4' : 'var(--color-text-secondary)',
-            appearance: 'none',
-            paddingRight: '6px',
-            width: 64,
-            textAlign: 'center',
-          }}
-          title={CARDINALITIES.find((c) => c.id === node.cardinality)?.desc}
-        >
-          {CARDINALITIES.map((c) => (
-            <option key={c.id} value={c.id} style={{ backgroundColor: 'var(--color-bg-secondary)' }}>
-              {c.label}
-            </option>
-          ))}
-        </select>
+          {/* Add child button */}
+          {canHaveChildren && (
+            <button
+              onClick={addChild}
+              className="flex items-center justify-center rounded cursor-pointer border-none flex-shrink-0 transition-all opacity-0 group-hover:opacity-100"
+              style={{
+                width: 22,
+                height: 22,
+                backgroundColor: 'rgba(168,85,247,0.1)',
+                color: '#a78bfa',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(168,85,247,0.25)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'rgba(168,85,247,0.1)' }}
+              title="Add child field"
+            >
+              <Plus size={11} />
+            </button>
+          )}
 
-        {/* Add child button */}
-        {canHaveChildren && (
+          {/* Delete button */}
           <button
-            onClick={addChild}
+            onClick={() => onDelete(node.id)}
             className="flex items-center justify-center rounded cursor-pointer border-none flex-shrink-0 transition-all opacity-0 group-hover:opacity-100"
             style={{
               width: 22,
               height: 22,
-              backgroundColor: 'rgba(168,85,247,0.1)',
-              color: '#a78bfa',
+              backgroundColor: 'transparent',
+              color: 'var(--color-text-secondary)',
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(168,85,247,0.25)' }}
-            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'rgba(168,85,247,0.1)' }}
-            title="Add child field"
+            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.15)'; e.currentTarget.style.color = '#ef4444' }}
+            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--color-text-secondary)' }}
+            title="Delete field"
           >
-            <Plus size={11} />
+            <Trash2 size={11} />
           </button>
-        )}
-
-        {/* Delete button */}
-        <button
-          onClick={() => onDelete(node.id)}
-          className="flex items-center justify-center rounded cursor-pointer border-none flex-shrink-0 transition-all opacity-0 group-hover:opacity-100"
-          style={{
-            width: 22,
-            height: 22,
-            backgroundColor: 'transparent',
-            color: 'var(--color-text-secondary)',
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.15)'; e.currentTarget.style.color = '#ef4444' }}
-          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--color-text-secondary)' }}
-          title="Delete field"
-        >
-          <Trash2 size={11} />
-        </button>
+        </div>
       </div>
 
       {/* Children */}
@@ -233,7 +240,6 @@ function SchemaRow({ node, depth, onUpdate, onDelete, onAddChild }) {
               style={{
                 marginLeft: `${depth * 14 + 16}px`,
                 borderLeft: '1px dashed rgba(255,255,255,0.08)',
-                minWidth: 'max-content',
               }}
             >
               {node.children.map((child) => (
@@ -316,7 +322,7 @@ export default function SchemaBuilderTree({ schema, onSchemaChange, format, onGe
       </div>
 
       {/* Tree */}
-      <div className="flex-1 min-h-0 overflow-auto py-2">
+      <div className="flex-1 min-h-0 overflow-y-auto py-2" style={{ position: 'relative' }}>
         {schema.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full px-6 text-center">
             <div

@@ -6,14 +6,30 @@
  * only the first item is used to infer the child schema, and
  * the parent node is flagged with isArray: true.
  */
+import { parseXsdOrWsdl } from './xsdWsdlParser'
+
+const DATE_REGEXPS = [
+  /^\d{4}-\d{2}-\d{2}$/,                                // 2024-01-15
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/, // ISO datetime
+  /^\d{2}:\d{2}(:\d{2})?$/,                             // 14:30:00
+  /^\d{2}\/\d{2}\/\d{4}$/,                              // 01/15/2024
+  /^\d{2}\.\d{2}\.\d{4}$/,                              // 15.01.2024
+]
+
+function looksLikeDate(str) {
+  const s = String(str).trim()
+  return DATE_REGEXPS.some((re) => re.test(s))
+}
 
 function inferType(value) {
   if (value === null || value === undefined) return 'string'
   if (typeof value === 'boolean') return 'boolean'
   if (typeof value === 'number') return 'number'
   if (typeof value === 'string') {
-    if (value === 'true' || value === 'false') return 'boolean'
-    if (/^-?\d+(\.\d+)?$/.test(value.trim())) return 'number'
+    const t = value.trim()
+    if (t === 'true' || t === 'false') return 'boolean'
+    if (looksLikeDate(t)) return 'date'
+    if (/^-?\d+(\.\d+)?$/.test(t)) return 'number'
   }
   return 'string'
 }
@@ -136,5 +152,9 @@ export function parsePayload(text, format) {
   if (!text || !text.trim()) return { tree: [], error: 'Empty payload' }
   if (format === 'json') return parseJSON(text)
   if (format === 'xml') return parseXML(text)
+  if (format === 'xsd' || format === 'wsdl') {
+    const { tree, error, rootTag } = parseXsdOrWsdl(text, format)
+    return { tree, error, rootTag }
+  }
   return { tree: [], error: 'Unknown format' }
 }
