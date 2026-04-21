@@ -2,7 +2,7 @@
  * Alchem.io Code Generator
  *
  * Reads the ReactFlow graph (nodes + edges) and produces valid
- * XSLT 2.0 and Groovy scripts that reflect the actual canvas mappings.
+ * XSLT 1.0 and Groovy scripts that reflect the actual canvas mappings.
  *
  * Graph structure:
  *  - source-payload node (handleType=source), handles are dot-path field IDs

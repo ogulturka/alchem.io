@@ -9,7 +9,7 @@ import PayloadTreeNode from './PayloadTreeNode'
 import TransformNode from './TransformNode'
 import UdfNode from './UdfNode'
 import CommandPalette from './CommandPalette'
-import CopilotCommandBar from './CopilotCommandBar'
+import AlchopilotCommandBar from './AlchopilotCommandBar'
 
 const nodeTypes = {
   payloadTree: PayloadTreeNode,
@@ -17,15 +17,12 @@ const nodeTypes = {
   udf: UdfNode,
 }
 
-const INITIAL_GHOST = { active: false, nodes: [], edges: [], description: '' }
-
 export default function FlowCanvas() {
   const nodes = useAppStore((s) => s.nodes)
   const edges = useAppStore((s) => s.edges)
   const clearMappings = useAppStore((s) => s.clearMappings)
   const udfCount = useAppStore((s) => s.udfs.length)
   const [udfOpen, setUdfOpen] = useState(false)
-  const [ghostState, setGhostState] = useState(INITIAL_GHOST)
   const onNodesChange = useAppStore((s) => s.onNodesChange)
   const onEdgesChange = useAppStore((s) => s.onEdgesChange)
   const onConnect = useAppStore((s) => s.onConnect)
@@ -177,71 +174,38 @@ export default function FlowCanvas() {
   const activeEdgeIds = lockedEdgeIds || highlightedEdgeIds
   const activeNodeIds = lockedEdgeIds ? lockedNodeIds : highlightedNodeIds
 
-  // ── Style edges (+ ghost edges) ──
-  const styledEdges = useMemo(() => {
-    const realEdges = edges.map((edge) => {
-      const isHighlighted = activeEdgeIds === null || activeEdgeIds.has(edge.id)
-      const isLocked = lockedEdgeIds !== null
-      const isHoverOrLock = activeEdgeIds !== null
+  const styledEdges = useMemo(() => edges.map((edge) => {
+    const isHighlighted = activeEdgeIds === null || activeEdgeIds.has(edge.id)
+    const isHoverOrLock = activeEdgeIds !== null
 
-      return {
-        ...edge,
-        markerEnd: {
-          type: MarkerType.ArrowClosed,
-          width: 16,
-          height: 16,
-          color: 'var(--color-edge)',
-        },
-        style: {
-          stroke: 'var(--color-edge)',
-          strokeWidth: isHighlighted ? (isHoverOrLock ? 3 : 2) : 1,
-          opacity: isHighlighted ? 1 : 0.1,
-          filter: isHoverOrLock && isHighlighted
-            ? 'drop-shadow(0 0 8px var(--color-accent-glow))'
-            : 'none',
-          transition: 'opacity 0.25s ease, stroke-width 0.25s ease, filter 0.25s ease',
-        },
-      }
-    })
-
-    // Merge ghost edges with dashed preview styling
-    const ghosts = ghostState.edges.map((edge) => ({
+    return {
       ...edge,
       markerEnd: {
         type: MarkerType.ArrowClosed,
         width: 16,
         height: 16,
-        color: '#a855f7',
+        color: 'var(--color-edge)',
       },
       style: {
-        stroke: '#a855f7',
-        strokeWidth: 2,
-        strokeDasharray: '8 4',
-        opacity: 0.6,
-        filter: 'drop-shadow(0 0 6px rgba(168,85,247,0.5))',
+        stroke: 'var(--color-edge)',
+        strokeWidth: isHighlighted ? (isHoverOrLock ? 3 : 2) : 1,
+        opacity: isHighlighted ? 1 : 0.1,
+        filter: isHoverOrLock && isHighlighted
+          ? 'drop-shadow(0 0 8px var(--color-accent-glow))'
+          : 'none',
+        transition: 'opacity 0.25s ease, stroke-width 0.25s ease, filter 0.25s ease',
       },
-    }))
+    }
+  }), [edges, activeEdgeIds])
 
-    return [...realEdges, ...ghosts]
-  }, [edges, activeEdgeIds, lockedEdgeIds, ghostState.edges])
-
-  // ── Style nodes (+ ghost nodes) ──
-  const styledNodes = useMemo(() => {
-    const real = activeNodeIds
+  const styledNodes = useMemo(() => (
+    activeNodeIds
       ? nodes.map((node) => ({
           ...node,
           className: activeNodeIds.has(node.id) ? 'node-highlighted' : '',
         }))
       : nodes
-
-    // Merge ghost nodes with ghost class
-    const ghosts = ghostState.nodes.map((node) => ({
-      ...node,
-      className: 'node-ghost',
-    }))
-
-    return [...real, ...ghosts]
-  }, [nodes, activeNodeIds, ghostState.nodes])
+  ), [nodes, activeNodeIds])
 
   const defaultEdgeOptions = useMemo(
     () => ({
@@ -389,8 +353,8 @@ export default function FlowCanvas() {
         <Plus size={20} style={{ color: 'var(--color-accent)' }} />
       </motion.button>
 
-      {/* AI Copilot Command Bar */}
-      <CopilotCommandBar ghostState={ghostState} setGhostState={setGhostState} />
+      {/* Alchopilot Command Bar */}
+      <AlchopilotCommandBar />
 
       {/* Command Palette */}
       <CommandPalette

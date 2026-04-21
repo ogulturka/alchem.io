@@ -308,6 +308,98 @@ const useAppStore = create((set, get) => ({
     const data = { operation, ...(defaults[operation] || {}) }
     set({ nodes: [...get().nodes, { id, type: 'transform', position, data }] })
   },
+
+  // Alchopilot executor: consumes the strict JSON contract from
+  // services/alchopilotService.js and mutates the canvas (nodes + edges).
+  alchopilotExecute: (payload) => {
+    if (!payload || payload.intent === 'UNKNOWN') {
+      return { ok: false, error: payload?.error || 'Unknown intent' }
+    }
+
+    const { nodes, edges } = get()
+    const sourcePayload = nodes.find((n) => n.id === 'source-payload')
+    const targetPayload = nodes.find((n) => n.id === 'target-payload')
+    const transformNodes = nodes.filter((n) => n.type === 'transform')
+
+    // Place the new transform between the two payload columns, below any
+    // existing transforms so it doesn't overlap.
+    const midX = ((sourcePayload?.position?.x ?? 0) + (targetPayload?.position?.x ?? 750)) / 2
+    const baseY = transformNodes.length > 0
+      ? Math.max(...transformNodes.map((n) => n.position.y)) + 120
+      : 100
+
+    const makeEdge = (overrides) => ({
+      type: 'smoothstep',
+      animated: true,
+      markerEnd: ARROW_MARKER,
+      ...overrides,
+    })
+
+    const newNodes = []
+    const newEdges = []
+
+    if (payload.intent === 'DIRECT_MAP') {
+      const [src] = payload.sourceIds || []
+      newEdges.push(makeEdge({
+        id: `alchopilot-edge-${Date.now()}`,
+        source: 'source-payload',
+        sourceHandle: src,
+        target: 'target-payload',
+        targetHandle: payload.targetId,
+      }))
+    } else if (
+      payload.intent === 'TRANSFORM_MAP' ||
+      payload.intent === 'CONCAT_MAP' ||
+      payload.intent === 'CONSTANT_MAP'
+    ) {
+      const operation = payload.transformType
+      const opDefaults = {
+        substring: { substringStart: 0, substringLength: 5 },
+        formatDate: { format: 'yyyy-MM-dd' },
+        math: { mathOperator: '+' },
+      }
+      const nodeId = `alchopilot-${operation}-${transformIdCounter++}`
+
+      newNodes.push({
+        id: nodeId,
+        type: 'transform',
+        position: { x: midX, y: baseY },
+        data: { operation, ...(opDefaults[operation] || {}), ...(payload.params || {}) },
+      })
+
+      const sources = payload.sourceIds || []
+      sources.forEach((srcPath, idx) => {
+        const handleName = payload.intent === 'CONCAT_MAP'
+          ? (idx === 0 ? 'a' : 'b')
+          : 'input'
+        newEdges.push(makeEdge({
+          id: `alchopilot-edge-in-${nodeId}-${idx}`,
+          source: 'source-payload',
+          sourceHandle: srcPath,
+          target: nodeId,
+          targetHandle: `in-${handleName}`,
+        }))
+      })
+
+      newEdges.push(makeEdge({
+        id: `alchopilot-edge-out-${nodeId}`,
+        source: nodeId,
+        sourceHandle: 'out-result',
+        target: 'target-payload',
+        targetHandle: payload.targetId,
+      }))
+    } else {
+      return { ok: false, error: `Unsupported intent: ${payload.intent}` }
+    }
+
+    set({
+      nodes: [...nodes, ...newNodes],
+      edges: [...edges, ...newEdges],
+    })
+
+    return { ok: true, description: payload.description || 'Applied' }
+  },
+
   clearMappings: () => {
     const { nodes } = get()
     set({

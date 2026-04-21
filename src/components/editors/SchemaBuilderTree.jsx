@@ -1,6 +1,33 @@
 import { useCallback, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Trash2, ChevronRight, ChevronDown, Sparkles, FileCode, Hash, ToggleLeft, FolderOpen, List, Calendar } from 'lucide-react'
+import {
+  Plus,
+  Trash2,
+  ChevronRight,
+  ChevronDown,
+  Sparkles,
+  FileCode,
+  Hash,
+  ToggleLeft,
+  FolderOpen,
+  List,
+  Calendar,
+  GripVertical,
+} from 'lucide-react'
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { createEmptyNode, generatePayloadFromSchema } from '../../utils/schemaGenerator'
 
 const TYPES = [
@@ -31,7 +58,39 @@ function isMultiple(card) {
   return card === '0..n' || card === '1..n'
 }
 
-function SchemaRow({ node, depth, onUpdate, onDelete, onAddChild }) {
+function SortableSchemaRow({ node, depth, onUpdate, onDelete }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: node.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    position: 'relative',
+    zIndex: isDragging ? 50 : 'auto',
+  }
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <SchemaRow
+        node={node}
+        depth={depth}
+        onUpdate={onUpdate}
+        onDelete={onDelete}
+        dragHandleProps={{ ...attributes, ...listeners }}
+        isDragging={isDragging}
+      />
+    </div>
+  )
+}
+
+function SchemaRow({ node, depth, onUpdate, onDelete, dragHandleProps, isDragging }) {
   const [expanded, setExpanded] = useState(true)
   const typeMeta = getTypeMeta(node.type)
   const TypeIcon = typeMeta.icon
@@ -41,25 +100,28 @@ function SchemaRow({ node, depth, onUpdate, onDelete, onAddChild }) {
   const updateField = (field, value) => {
     let updated = { ...node, [field]: value }
     if (field === 'type') {
-      // Auto-add a starter child when type changes to object/array and there are no children yet
       if (isContainer(value) && (!node.children || node.children.length === 0)) {
         updated.children = [createEmptyNode()]
         setExpanded(true)
       }
-      // Clear children when changing from container to primitive
       if (!isContainer(value) && isContainer(node.type)) {
         updated.children = []
       }
-      // Type 'array' implies multiplicity → auto-set cardinality 0..n
       if (value === 'array' && (node.cardinality === '1' || node.cardinality === '0..1')) {
         updated.cardinality = '0..n'
       }
-      // Switching away from array back to a single value → reset to 1
       if (node.type === 'array' && value !== 'array' && (node.cardinality === '0..n' || node.cardinality === '1..n')) {
         updated.cardinality = '1'
       }
     }
     onUpdate(updated)
+  }
+
+  const reorderChildren = (activeId, overId) => {
+    const oldIndex = node.children.findIndex((c) => c.id === activeId)
+    const newIndex = node.children.findIndex((c) => c.id === overId)
+    if (oldIndex === -1 || newIndex === -1) return
+    onUpdate({ ...node, children: arrayMove(node.children, oldIndex, newIndex) })
   }
 
   const updateChild = (childId, updatedChild) => {
@@ -82,16 +144,35 @@ function SchemaRow({ node, depth, onUpdate, onDelete, onAddChild }) {
       <div
         className="group flex items-center py-1 rounded-md transition-colors"
         style={{
-          backgroundColor: 'transparent',
+          backgroundColor: isDragging ? 'rgba(168,85,247,0.08)' : 'transparent',
+          boxShadow: isDragging ? '0 4px 14px rgba(0,0,0,0.4), 0 0 0 1px rgba(168,85,247,0.3)' : 'none',
         }}
-        onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.025)' }}
-        onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}
+        onMouseEnter={(e) => { if (!isDragging) e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.025)' }}
+        onMouseLeave={(e) => { if (!isDragging) e.currentTarget.style.backgroundColor = 'transparent' }}
       >
-        {/* ── LEFT: tree indent + name (flexible, can shrink) ── */}
+        {/* ── LEFT: tree indent + drag handle + name (flexible, can shrink) ── */}
         <div
-          className="flex items-center gap-2 flex-1 min-w-0"
-          style={{ paddingLeft: `${depth * 14 + 8}px`, paddingRight: 8 }}
+          className="flex items-center gap-1.5 flex-1 min-w-0"
+          style={{ paddingLeft: `${depth * 14 + 4}px`, paddingRight: 8 }}
         >
+          {/* Drag handle */}
+          <button
+            {...(dragHandleProps || {})}
+            className="flex items-center justify-center rounded cursor-grab active:cursor-grabbing border-none flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+            style={{
+              width: 14,
+              height: 18,
+              backgroundColor: 'transparent',
+              color: 'var(--color-text-secondary)',
+              touchAction: 'none',
+            }}
+            title="Drag to reorder"
+            onMouseEnter={(e) => { e.currentTarget.style.color = '#a78bfa' }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--color-text-secondary)' }}
+          >
+            <GripVertical size={12} />
+          </button>
+
           {/* Expand/collapse */}
           {canHaveChildren ? (
             <button
@@ -226,7 +307,7 @@ function SchemaRow({ node, depth, onUpdate, onDelete, onAddChild }) {
         </div>
       </div>
 
-      {/* Children */}
+      {/* Children — each level has its own SortableContext so drag reorders siblings only */}
       <AnimatePresence>
         {hasChildren && expanded && (
           <motion.div
@@ -242,21 +323,44 @@ function SchemaRow({ node, depth, onUpdate, onDelete, onAddChild }) {
                 borderLeft: '1px dashed rgba(255,255,255,0.08)',
               }}
             >
-              {node.children.map((child) => (
-                <SchemaRow
-                  key={child.id}
-                  node={child}
-                  depth={depth + 1}
-                  onUpdate={(updated) => updateChild(child.id, updated)}
-                  onDelete={deleteChild}
-                  onAddChild={addChild}
-                />
-              ))}
+              <NestedSortableList
+                items={node.children}
+                onReorder={reorderChildren}
+                renderItem={(child) => (
+                  <SortableSchemaRow
+                    node={child}
+                    depth={depth + 1}
+                    onUpdate={(updated) => updateChild(child.id, updated)}
+                    onDelete={deleteChild}
+                  />
+                )}
+              />
             </div>
           </motion.div>
         )}
       </AnimatePresence>
     </div>
+  )
+}
+
+// Each nested level gets its own DnD context so drag reorders only among siblings
+function NestedSortableList({ items, onReorder, renderItem }) {
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
+
+  const handleDragEnd = (event) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    onReorder(active.id, over.id)
+  }
+
+  return (
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+        {items.map((item) => (
+          <div key={item.id}>{renderItem(item)}</div>
+        ))}
+      </SortableContext>
+    </DndContext>
   )
 }
 
@@ -273,6 +377,13 @@ export default function SchemaBuilderTree({ schema, onSchemaChange, format, onGe
 
   const addRootNode = useCallback(() => {
     onSchemaChange([...schema, createEmptyNode()])
+  }, [schema, onSchemaChange])
+
+  const reorderRoot = useCallback((activeId, overId) => {
+    const oldIndex = schema.findIndex((n) => n.id === activeId)
+    const newIndex = schema.findIndex((n) => n.id === overId)
+    if (oldIndex === -1 || newIndex === -1) return
+    onSchemaChange(arrayMove(schema, oldIndex, newIndex))
   }, [schema, onSchemaChange])
 
   const handleGenerate = useCallback(() => {
@@ -340,20 +451,25 @@ export default function SchemaBuilderTree({ schema, onSchemaChange, format, onGe
               Build your schema visually
             </div>
             <div className="text-[10.5px]" style={{ color: 'var(--color-text-secondary)', opacity: 0.7 }}>
-              Click "Add field" to start designing
+              Click "Add field" to start designing — drag rows to reorder
             </div>
           </div>
         ) : (
-          schema.map((node, i) => (
-            <SchemaRow
-              key={node.id}
-              node={node}
-              depth={0}
-              onUpdate={(updated) => updateRoot(i, updated)}
-              onDelete={deleteRoot}
-              onAddChild={() => {}}
-            />
-          ))
+          <NestedSortableList
+            items={schema}
+            onReorder={reorderRoot}
+            renderItem={(node) => {
+              const idx = schema.findIndex((n) => n.id === node.id)
+              return (
+                <SortableSchemaRow
+                  node={node}
+                  depth={0}
+                  onUpdate={(updated) => updateRoot(idx, updated)}
+                  onDelete={deleteRoot}
+                />
+              )
+            }}
+          />
         )}
       </div>
     </div>
